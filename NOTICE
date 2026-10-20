@@ -1,0 +1,22 @@
+InstaFocus
+Copyright (C) 2026 InstaFocus contributors
+
+This program is free software: you can redistribute it and/or modify it under the
+terms of the GNU General Public License version 3 as published by the Free Software
+Foundation. See LICENSE for the full text.
+
+Credits
+
+- curbox (https://github.com/curbox-app/curbox-android), GPL-3.0.
+  The Instagram detection approach (require the reel pager and its controls to be
+  on screen, treat the DM reply bar over the viewer as a sign the reel came from a
+  DM) and several Instagram view ids were studied from curbox's ReelAppConfig.kt
+  and adapted here.
+
+- frosen2/remove-reels (https://github.com/frosen2/remove-reels).
+  Studied for ideas only (remember the start index of the opened reel and snap
+  back when the user swipes away from it). That project has no license, so no
+  code from it was copied; InstaFocus reimplements the idea in its own code.
+
+Instagram is a trademark of Meta Platforms, Inc. InstaFocus is not affiliated with,
+endorsed by, or sponsored by Meta.
