@@ -44,6 +44,41 @@ class ScreenClassifierTest {
     }
 
     @Test
+    fun `explore grid with search tab selected is the explore grid`() {
+        assertEquals(Screen.EXPLORE_GRID, classify(INSTAGRAM_MAIN, exploreGrid(), offscreenReelsPage(), *tabButtons("search_tab")).screen)
+    }
+
+    @Test
+    fun `fewer than three grid cells is not the explore grid`() {
+        assertEquals(Screen.OTHER, classify(INSTAGRAM_MAIN, exploreGrid(cells = 2), *tabButtons("search_tab")).screen)
+    }
+
+    @Test
+    fun `grid cells outside the search tab are not the explore grid`() {
+        assertEquals(Screen.OTHER, classify(INSTAGRAM_MAIN, exploreGrid(), *tabButtons("feed_tab")).screen)
+    }
+
+    @Test
+    fun `search results are other`() {
+        assertEquals(Screen.OTHER, classify(INSTAGRAM_MAIN, searchResults(), *tabButtons("search_tab")).screen)
+    }
+
+    @Test
+    fun `profile page is a profile`() {
+        assertEquals(Screen.PROFILE, classify(INSTAGRAM_MAIN, profilePage()).screen)
+    }
+
+    @Test
+    fun `own profile tab is a profile`() {
+        assertEquals(Screen.PROFILE, classify(INSTAGRAM_MAIN, profilePage(), *tabButtons("profile_tab")).screen)
+    }
+
+    @Test
+    fun `reel in front of a profile is a reel`() {
+        assertEquals(Screen.SINGLE_REEL, classify(INSTAGRAM_MAIN, profilePage(), reelViewer()).screen)
+    }
+
+    @Test
     fun `reels tab with unknown activity is the reels tab`() {
         assertEquals(Screen.REELS_TAB, classify(null, reelViewer(), tabBar(selected = "clips_tab")).screen)
     }

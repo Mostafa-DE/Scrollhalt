@@ -77,6 +77,37 @@ fun dmThread(): FakeNode = node(
 
 fun dmInbox(): FakeNode = node("direct_inbox_recycler_view", bounds = SCREEN)
 
+/** Explore grid as dumped on 451: recycler_view of layout_container cells with image_preview. */
+fun exploreGrid(cells: Int = 9): FakeNode = node(
+    "swipeable_tab_view_pager", bounds = SCREEN, children = arrayOf(
+        node("pill_bar_rv"),
+        node(
+            "recycler_view", bounds = SCREEN,
+            children = (0 until cells).map { node("layout_container", children = arrayOf(node("image_preview"))) }.toTypedArray(),
+        ),
+        node("explore_action_bar_secondary_button_stub"),
+    ),
+)
+
+/** Search results while typing: user and keyword rows, no grid cells. */
+fun searchResults(): FakeNode = node(
+    "search_results", bounds = SCREEN, children = arrayOf(
+        node("action_bar_search_edit_text"),
+        node("row_search_user_container", children = arrayOf(node("row_search_user_username"), node("row_search_user_fullname"))),
+        node("row_search_keyword_title"),
+    ),
+)
+
+/** Another user's profile (opened from search): tab buttons not in the tree. */
+fun profilePage(): FakeNode = node(
+    "profile", bounds = SCREEN, children = arrayOf(
+        node("row_profile_header_imageview_frame_layout"),
+        node("profile_header_follow_button"),
+        node("profile_tab_layout"),
+        node("profile_viewpager", bounds = SCREEN),
+    ),
+)
+
 fun feed(): FakeNode = node("main_feed", bounds = SCREEN, children = arrayOf(node("row_feed_photo_profile_name")))
 
 /** The viewer of a reel shared in a DM: sender row and message composer, no tab bar. */

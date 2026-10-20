@@ -64,6 +64,34 @@ class CapturedScreensTest {
         both.forEach { assertEquals(Decision.BACK, decide(it, MAIN_TAB, *tree)) }
     }
 
+    /** Classifies each tree in turn with one policy and returns the last decision. */
+    private fun sequence(vararg screens: Array<UiNode>): Decision {
+        var policy = ReelPolicy()
+        var decision = Decision.NONE
+        screens.forEachIndexed { i, children ->
+            val result = policy.reduce(PolicyInput.ScreenSeen(i * 1_000L, ScreenClassifier.classify(root(*children), INSTAGRAM_MAIN)), PolicySettings())
+            policy = result.policy
+            decision = result.decision
+        }
+        return decision
+    }
+
+    @Test
+    fun `explore grid then a reel is closed`() {
+        val gridScreen = arrayOf<UiNode>(exploreGrid(), offscreenReelsPage(), *tabButtons("search_tab"))
+        val reel = arrayOf<UiNode>(reelViewer(bounds = Bounds(0, 0, 1080, 2017)))
+        assertEquals(Decision.BACK, sequence(gridScreen, reel))
+    }
+
+    @Test
+    fun `search, profile, then a reel plays`() {
+        val gridScreen = arrayOf<UiNode>(exploreGrid(), *tabButtons("search_tab"))
+        val results = arrayOf<UiNode>(searchResults(), *tabButtons("search_tab"))
+        val profileScreen = arrayOf<UiNode>(profilePage())
+        val reel = arrayOf<UiNode>(reelViewer())
+        assertEquals(Decision.NONE, sequence(gridScreen, results, profileScreen, reel))
+    }
+
     @Test
     fun `search screen with the reels page off screen is left alone`() {
         val search = node("explore", bounds = SCREEN, children = arrayOf(node("action_bar_search_edit_text")))

@@ -2,13 +2,13 @@ package app.instafocus.service
 
 import android.accessibilityservice.AccessibilityService
 import android.content.res.Configuration
-import android.graphics.Color
 import android.graphics.PixelFormat
 import android.util.Log
 import android.view.Gravity
 import android.view.View
 import android.view.WindowManager
 import app.instafocus.detect.Bounds
+import app.instafocus.detect.InstagramRules
 
 /**
  * An opaque patch drawn over Instagram's Reels tab button so it cannot be tapped. It is an
@@ -82,6 +82,6 @@ class ReelsTabCover(private val service: AccessibilityService, private val onTap
 
     private fun tabBarColor(): Int {
         val night = service.resources.configuration.uiMode and Configuration.UI_MODE_NIGHT_MASK
-        return if (night == Configuration.UI_MODE_NIGHT_YES) Color.BLACK else Color.WHITE
+        return if (night == Configuration.UI_MODE_NIGHT_YES) InstagramRules.TAB_BAR_COLOR_DARK else InstagramRules.TAB_BAR_COLOR_LIGHT
     }
 }

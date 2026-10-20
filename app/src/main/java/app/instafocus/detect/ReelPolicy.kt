@@ -5,15 +5,18 @@ import app.instafocus.detect.PolicyInput.PagerScrolled
 import app.instafocus.detect.PolicyInput.ScreenSeen
 import app.instafocus.detect.PolicyInput.ViewClicked
 
-/** Where a reel in front was opened from. */
+/** Where a reel in front was opened from: the last non-reel screen before it. */
 enum class ReelOrigin {
-    /** Shared in a DM (modal activity or sender markers). */
+    /** Shared in a DM (modal activity or sender markers), or opened from a DM screen. */
     DM,
 
-    /** Opened while the Search tab is selected: the Explore grid, or a profile reached by search. */
+    /** The Explore grid, or an unknown screen inside the Search tab. Closed at once. */
     EXPLORE,
 
-    /** Opened from the feed or a profile. */
+    /** A profile page, including one reached through search. */
+    PROFILE,
+
+    /** The feed or another screen outside the Search tab. */
     OTHER,
 }
 
@@ -21,8 +24,8 @@ enum class ReelOrigin {
  * Immutable state machine that turns what the service observes into a [Decision].
  *
  * - Reels tab: go Home (the service also covers the tab button, so this is the backup).
- * - Explore reels: close at once. DM, feed and profile reels: the first one plays, the
- *   first swipe to another reel closes it.
+ * - Reels opened from the Explore grid: close at once. Reels from a DM, the feed or a
+ *   profile: the first one plays, the first swipe to another reel closes it.
  * - It never acts on DM or other screens.
  *
  * Every attempt is blocked, however often the user retries. An action that did not work
@@ -36,6 +39,8 @@ data class ReelPolicy(
     val lastScroll: PagerScrolled? = null,
     /** Selected tab from the last scan with the tab bar visible; viewers hide the tab bar. */
     val lastSelectedTab: String? = null,
+    /** Last confidently classified non-reel screen: where the next reel comes from. */
+    val lastSurface: Screen? = null,
     /** The last action whose outcome is not known yet. */
     val pending: PendingAction? = null,
     val lastActionAt: Long? = null,
@@ -95,8 +100,11 @@ data class ReelPolicy(
         }
         return when (classification.screen) {
             Screen.UNKNOWN -> seen.idle(input.atMillis, "not confident: reel pager without reel controls")
-            Screen.DM, Screen.OTHER ->
-                PolicyResult(seen.copy(session = null, pending = null), Decision.NONE, "on ${classification.screen}")
+            Screen.DM, Screen.EXPLORE_GRID, Screen.PROFILE, Screen.OTHER -> PolicyResult(
+                seen.copy(session = null, pending = null, lastSurface = classification.screen),
+                Decision.NONE,
+                "on ${classification.screen}",
+            )
             Screen.REELS_TAB ->
                 if (settings.blockingEnabled) {
                     seen.copy(session = null).block(input.atMillis, Screen.REELS_TAB, Decision.GO_HOME, "Reels tab selected")
@@ -115,7 +123,9 @@ data class ReelPolicy(
         val current = base.session
 
         return when {
-            origin == ReelOrigin.EXPLORE -> base.block(at, Screen.SINGLE_REEL, Decision.BACK, "reel opened from Explore")
+            // A reel already allowed stays allowed even if the remembered origin changes.
+            origin == ReelOrigin.EXPLORE && current == null ->
+                base.block(at, Screen.SINGLE_REEL, Decision.BACK, "reel opened from Explore")
             origin == ReelOrigin.DM && !settings.allowSingleReel ->
                 base.block(at, Screen.SINGLE_REEL, Decision.BACK, "reel shared in DM, single reels off")
             current == null -> {
@@ -156,6 +166,10 @@ data class ReelPolicy(
 
     private fun origin(classification: Classification): ReelOrigin = when {
         classification.sharedInDm -> ReelOrigin.DM
+        lastSurface == Screen.EXPLORE_GRID -> ReelOrigin.EXPLORE
+        lastSurface == Screen.PROFILE -> ReelOrigin.PROFILE
+        lastSurface == Screen.DM -> ReelOrigin.DM
+        // Origin unknown (or a non-grid screen) inside the Search tab: treat as Explore.
         (classification.selectedTab ?: lastSelectedTab) == InstagramRules.SEARCH_TAB_ID -> ReelOrigin.EXPLORE
         else -> ReelOrigin.OTHER
     }

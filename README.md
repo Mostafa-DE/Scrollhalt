@@ -84,10 +84,12 @@ What it does:
   (threads, viewers), when a keyboard is shown, when Instagram is not in front, when
   blocking is off, and when the service stops. If the Reels tab opens anyway (a link,
   Instagram restoring it), InstaFocus taps Home.
-- **Explore reels: closed at once** (Back). This covers every reel opened while the
-  Search tab is selected, including a reel on a profile reached through search.
-  The search bar, results, profiles, photo posts and the Explore grid keep working.
-- **Reels shared in DMs, and reels from the feed or a profile:** the first one plays; the
+- **Explore grid reels: closed at once** (Back). What counts is where the reel was opened
+  from: the last screen before the viewer. From the Explore grid (Search tab, grid cells
+  `image_preview` on screen), or from an unknown screen inside the Search tab, it closes.
+  The search bar, results, profiles, photo posts and the grid itself keep working.
+- **Reels shared in DMs, and reels from the feed or a profile** (also a profile reached
+  through search): the first one plays; the
   first swipe to another reel presses Back, which closes the viewer. With "Allow reels
   shared in DMs" off, a shared reel closes right away.
 - It never acts on DM threads, the inbox or other screens.
@@ -101,8 +103,10 @@ Signals:
   start none does, and then the Reels page being on screen marks the Reels tab. Pages of
   the main tab ViewPager other than the current one are not visible to accessibility, so
   the Reels tree kept alive behind other screens does not count. When a viewer hides the
-  tab bar, the tab selected at the last visible tab bar is used (this is how an Explore
-  reel is recognised);
+  tab bar, the tab selected at the last visible tab bar is used;
+- the **origin screen**: the last confidently classified non-reel screen (`EXPLORE_GRID`,
+  `PROFILE` via `profile_viewpager` / `profile_tab_layout` /
+  `row_profile_header_imageview_frame_layout`, `DM`, `OTHER`). UNKNOWN frames never reset it;
 - the current **activity**, only as a positive signal: a reel shared in a DM opens in
   `TransparentModalActivity`;
 - **DM markers** (`direct_thread_header`, `row_thread_composer_edittext`, ...) and
@@ -120,8 +124,8 @@ Flow:
    (at most one every 100 ms; nothing runs while idle). The scan copies the tree
    (`detect/TreeCopy`, skipping the insides of hidden nodes).
 2. `ScreenClassifier` names the screen: **REELS_TAB**, **SINGLE_REEL** (pager and reel
-   controls on screen, no tab bar), **DM**, **UNKNOWN** (pager without controls) or
-   **OTHER**.
+   controls on screen, no tab bar), **DM**, **UNKNOWN** (pager without controls),
+   **EXPLORE_GRID**, **PROFILE** or **OTHER** (feed, search results, everything else).
 3. `ReelPolicy`, an immutable state machine, decides:
    - Every attempt is blocked, however often you retry. Actions are at least 700 ms
      apart; a decision held back by that cooldown is retried with a scan at its end.
@@ -170,8 +174,10 @@ memory only and are gone when the app process ends.
   button on every scan).
 - It reacts after a viewer appears, so a frame of a reel may show before Back, and a frame
   of the next reel can show before a swipe is closed.
-- Every reel opened inside the Search tab is closed, including reels on a profile reached
-  through search (accepted trade-off: it cannot tell those apart).
+- A reel opened inside the Search tab from a screen it does not recognise (neither the
+  grid nor a profile) is closed, to be safe.
+- The cover colour is a constant sampled from Instagram 451 (`TAB_BAR_COLOR_DARK` =
+  #0C0F14; light mode #FFFFFF is not confirmed yet), never read from the screen.
 - Reels from the feed and profiles are assumed to behave like DM reels; not every path
   has been captured on a device yet.
 - Swipe detection relies on the pager reporting page indexes in scroll events.
@@ -187,7 +193,8 @@ memory only and are gone when the app process ends.
 - [ ] Open a reel someone sent you in a DM: it plays.
 - [ ] Swipe up to the next reel: the viewer closes ("Reels blocked" toast).
 - [ ] Back from that reel returns to the chat.
-- [ ] Open a reel from Explore: it closes at once. Search, results and profiles work.
+- [ ] Open a reel from the Explore grid: it closes at once. Search, results and profiles work.
+- [ ] Search a profile and open one of its reels: it plays; a swipe closes it.
 - [ ] Open a reel from the feed: it plays; a swipe closes it.
 - [ ] Stories play and can be swiped through.
 - [ ] DMs: inbox, threads, sending messages, photos and voice notes work.

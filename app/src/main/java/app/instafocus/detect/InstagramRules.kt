@@ -69,11 +69,34 @@ object InstagramRules {
     const val HOME_TAB_ID: String = "feed_tab"
 
     /**
-     * Search/Explore tab. A reel opened while this tab is selected (from the Explore grid,
-     * or from a profile reached through search) is closed at once. Observed on 451: the
-     * Explore reel runs in the main activity with the tab bar gone and search_tab selected.
+     * Search/Explore tab. Observed on 451: an Explore reel runs in the main activity with
+     * the tab bar gone and search_tab selected. A reel whose origin screen is unknown while
+     * this tab is selected is treated as an Explore reel.
      */
     const val SEARCH_TAB_ID: String = "search_tab"
+
+    /**
+     * Explore grid: search_tab selected, tab buttons on screen, and at least
+     * [EXPLORE_GRID_MIN_CELLS] grid cells on screen (`recycler_view` > `layout_container` >
+     * `image_preview`, 3 columns). Search results (`row_search_user_container`,
+     * `row_search_keyword_title`, ...) have no such cells and stay OTHER.
+     */
+    const val EXPLORE_GRID_CELL_ID: String = "image_preview"
+    const val EXPLORE_GRID_MIN_CELLS: Int = 3
+
+    /** A profile page (own or another user's, also one reached through search). */
+    val profileMarkerIds: List<String> = listOf(
+        "profile_viewpager",
+        "profile_tab_layout",
+        "row_profile_header_imageview_frame_layout",
+    )
+
+    /**
+     * Tab bar fill colours for the Reels cover, sampled from Instagram 451 screenshots
+     * (dark: rgb(12,15,20)). Light is not confirmed yet. Never sampled at runtime.
+     */
+    const val TAB_BAR_COLOR_DARK: Int = 0xFF0C0F14.toInt()
+    const val TAB_BAR_COLOR_LIGHT: Int = 0xFFFFFFFF.toInt()
 
     /**
      * Bottom tab buttons, in bar order. On 451 a tab reports isSelected only after a tab

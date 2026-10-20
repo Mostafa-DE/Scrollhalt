@@ -20,7 +20,7 @@
 
     <string name="setting_block">Block Reels</string>
     <string name="setting_single_reel">Allow reels shared in DMs</string>
-    <string name="setting_single_reel_detail">A reel someone sends you plays; swiping to the next one closes it. Off: shared reels close right away. Reels from the feed or a profile always play once; reels from Explore are always closed.</string>
+    <string name="setting_single_reel_detail">A reel someone sends you plays; swiping to the next one closes it. Off: shared reels close right away. Reels from the feed or a profile always play once; reels from the Explore grid are always closed.</string>
     <string name="open_accessibility_settings">Open Accessibility settings</string>
 
     <string name="setup_title">Setup help</string>
@@ -29,7 +29,7 @@
     <string name="open_app_info">Open App info</string>
 
     <string name="how_title">How it works</string>
-    <string name="how_body">InstaFocus looks at Instagram\'s view ids, not at what is on the screen. It covers the Reels tab button with a patch in the tab bar\'s colour, and if the Reels tab opens anyway it taps Home. A reel shared in a DM, or opened from the feed or a profile, plays once; swiping to the next reel closes it. Reels opened from Explore or search close right away. It reacts after the viewer appears, so a frame of a reel may flash. It depends on Instagram\'s internal names and layout, so an Instagram update can break it until the rules are updated. It never acts when it is unsure, so it will rather miss a reel than block a chat.</string>
+    <string name="how_body">InstaFocus looks at Instagram\'s view ids, not at what is on the screen. It covers the Reels tab button with a patch in the tab bar\'s colour, and if the Reels tab opens anyway it taps Home. A reel shared in a DM, or opened from the feed or a profile, plays once; swiping to the next reel closes it. Reels opened from the Explore grid close right away. It reacts after the viewer appears, so a frame of a reel may flash. It depends on Instagram\'s internal names and layout, so an Instagram update can break it until the rules are updated. It never acts when it is unsure, so it will rather miss a reel than block a chat.</string>
 
     <string name="debug_open">Debug log</string>
     <string name="debug_title">Debug log</string>

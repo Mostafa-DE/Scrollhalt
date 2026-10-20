@@ -10,7 +10,13 @@ enum class Screen {
     /** DM thread or inbox. Never acted on. */
     DM,
 
-    /** Anything else: feed, profile, Explore grid, stories, settings. */
+    /** The Explore grid in the Search tab. Reels opened from it are closed at once. */
+    EXPLORE_GRID,
+
+    /** A profile page. Reels opened from it play once, even when the profile was found by search. */
+    PROFILE,
+
+    /** Anything else: feed, search results, stories, settings. */
     OTHER,
 
     /** A reel pager without a tab bar but also without reel controls; not confident either way. */

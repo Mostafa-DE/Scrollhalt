@@ -30,6 +30,9 @@ object ScreenClassifier {
             root.findOnScreen(InstagramRules.dmMarkerIds) != null -> Screen.DM
             reelInFront && reelUiOnScreen -> Screen.SINGLE_REEL
             reelInFront -> Screen.UNKNOWN
+            tabBarVisible && selectedTab == InstagramRules.SEARCH_TAB_ID && exploreCells(root) >= InstagramRules.EXPLORE_GRID_MIN_CELLS ->
+                Screen.EXPLORE_GRID
+            root.findOnScreen(InstagramRules.profileMarkerIds) != null -> Screen.PROFILE
             else -> Screen.OTHER
         }
         return Classification(
@@ -41,6 +44,9 @@ object ScreenClassifier {
             activity = activity,
         )
     }
+
+    private fun exploreCells(root: UiNode): Int =
+        root.walk().count { it.isOnScreen() && InstagramRules.matches(it.viewId, InstagramRules.EXPLORE_GRID_CELL_ID) }
 
     private fun tabName(node: UiNode): String? = InstagramRules.tabIds.firstOrNull { InstagramRules.matches(node.viewId, it) }
 }

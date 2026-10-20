@@ -17,6 +17,8 @@ class ReelPolicyTest {
     private val feed = Classification(Screen.OTHER, tabBarVisible = true, selectedTab = "feed_tab")
     private val searchScreen = Classification(Screen.OTHER, tabBarVisible = true, selectedTab = "search_tab")
     private val unknown = Classification(Screen.UNKNOWN)
+    private val grid = Classification(Screen.EXPLORE_GRID, tabBarVisible = true, selectedTab = "search_tab")
+    private val profile = Classification(Screen.PROFILE)
 
     /** Feeds inputs one by one and keeps the latest policy. */
     private class Run(var settings: PolicySettings = PolicySettings()) {
@@ -355,6 +357,51 @@ class ReelPolicyTest {
     }
 
     // Explore
+
+    @Test
+    fun `reel from the explore grid is closed at once`() {
+        val run = Run()
+        run.seen(0, grid)
+        assertEquals(Decision.BACK, run.seen(500, exploreReel).decision)
+        assertEquals(Decision.NONE, run.seen(800, grid).decision)
+        assertNull(run.policy.pending)
+    }
+
+    @Test
+    fun `reel from a profile reached through search plays once`() {
+        val run = Run()
+        run.seen(0, grid)
+        run.seen(500, searchScreen)
+        run.seen(1_000, profile)
+        assertEquals(Decision.NONE, run.seen(1_500, exploreReel).decision)
+        run.scroll(1_600, 3)
+        assertEquals(Decision.BACK, run.scroll(4_000, 4).decision)
+        assertEquals(Decision.NONE, run.seen(4_300, profile).decision)
+    }
+
+    @Test
+    fun `reel from a dm screen plays once`() {
+        val run = Run()
+        run.seen(0, searchScreen)
+        run.seen(500, dm)
+        assertEquals(Decision.NONE, run.seen(1_000, feedReel).decision)
+    }
+
+    @Test
+    fun `unknown frames do not reset the origin`() {
+        val run = Run()
+        run.seen(0, grid)
+        run.seen(300, unknown)
+        run.seen(400, unknown)
+        assertEquals(Decision.BACK, run.seen(500, exploreReel).decision)
+    }
+
+    @Test
+    fun `reel with unknown origin inside the search tab is closed`() {
+        val run = Run()
+        run.seen(0, searchScreen)
+        assertEquals(Decision.BACK, run.seen(500, feedReel).decision)
+    }
 
     @Test
     fun `explore reel is closed at once`() {
