@@ -1,0 +1,45 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">InstaFocus</string>
+
+    <string name="service_summary">Keeps you out of the Instagram Reels feed.</string>
+    <string name="service_description">InstaFocus reads the names of on-screen views inside the Instagram app (for example \"reel viewer\" or \"Reels tab\") to notice when the Reels feed opens, then taps Home or Back for you. It does not read messages, captions or usernames, and nothing is stored or sent anywhere: the app has no internet permission.</string>
+
+    <string name="toast_blocked">Reels blocked</string>
+    <string name="toast_single_reel">Only the reel you opened</string>
+
+    <string name="status_title">Status</string>
+    <string name="status_off">Off</string>
+    <string name="status_off_detail">The accessibility service is not enabled. Open Accessibility settings and turn on InstaFocus.</string>
+    <string name="status_not_running">Enabled, not running</string>
+    <string name="status_not_running_detail">The service is enabled but not connected. Toggle it off and on again, and set InstaFocus to Never sleeping in battery settings.</string>
+    <string name="status_protecting">Protecting</string>
+    <string name="status_protecting_detail">The Reels feed is blocked in Instagram.</string>
+    <string name="status_paused">Paused</string>
+    <string name="status_paused_detail">The service is running but Block Reels is off.</string>
+
+    <string name="setting_block">Block Reels</string>
+    <string name="setting_single_reel">Allow single shared reel (DMs, Explore, feed)</string>
+    <string name="setting_single_reel_detail">Play the one reel you opened, but snap back if you swipe to the next.</string>
+    <string name="open_accessibility_settings">Open Accessibility settings</string>
+
+    <string name="setup_title">Setup help</string>
+    <string name="setup_restricted">If the InstaFocus switch is greyed out in Accessibility settings, Android has restricted it because the app was not installed from a store. Open App info, tap the three-dot menu at the top right, choose Allow restricted settings, confirm, then go back and enable the service.</string>
+    <string name="setup_samsung">Samsung phones may stop the service in the background. In Settings > Battery > Background usage limits, add InstaFocus to Never sleeping apps (or open App info > Battery and choose Unrestricted).</string>
+    <string name="open_app_info">Open App info</string>
+
+    <string name="how_title">How it works</string>
+    <string name="how_body">InstaFocus looks at Instagram\'s view ids, not at what is on the screen. When the full-screen reel viewer appears from the Reels tab, it taps Home. When you open a reel from a DM, Explore or the feed, that one reel plays; swiping to the next one scrolls you back. It reacts after the viewer appears, so a frame or two of a reel may flash. It depends on Instagram\'s internal names, so an Instagram update can break it until the rules are updated. It never acts when it is unsure, so it will rather miss a reel than block a chat.</string>
+
+    <string name="debug_open">Debug log</string>
+    <string name="debug_title">Debug log</string>
+    <string name="debug_back">Back</string>
+    <string name="debug_capture">Capture visible view ids</string>
+    <string name="debug_capture_detail">Keeps the ids of the views on screen in the last scan, in memory only. No text, names or messages.</string>
+    <string name="debug_copy">Copy snapshot</string>
+    <string name="debug_clear">Clear</string>
+    <string name="debug_empty">No entries yet. Open Instagram with the service running.</string>
+    <string name="debug_snapshot_count">View ids in snapshot: %1$d</string>
+    <string name="debug_copied">Snapshot copied</string>
+    <string name="debug_clip_label">InstaFocus view ids</string>
+</resources>
