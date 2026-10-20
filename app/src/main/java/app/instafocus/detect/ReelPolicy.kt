@@ -5,20 +5,37 @@ import app.instafocus.detect.PolicyInput.PagerScrolled
 import app.instafocus.detect.PolicyInput.ScreenSeen
 import app.instafocus.detect.PolicyInput.ViewClicked
 
+/** Where a reel in front was opened from. */
+enum class ReelOrigin {
+    /** Shared in a DM (modal activity or sender markers). */
+    DM,
+
+    /** Opened while the Search tab is selected: the Explore grid, or a profile reached by search. */
+    EXPLORE,
+
+    /** Opened from the feed or a profile. */
+    OTHER,
+}
+
 /**
  * Immutable state machine that turns what the service observes into a [Decision].
  *
- * It never acts on DM or other screens, and presses Back on opening a reel only when it
- * is sure the reel is in front. Every attempt to watch reels is blocked, however often
- * the user retries: there is no "N actions then give up". Instead, an action that did not
- * work (the first observation after the cooldown still shows the same blocked screen)
- * escalates to a stronger one, ending at the launcher. Only if even that fails repeatedly
- * does it pause, because then detection itself is probably broken.
+ * - Reels tab: go Home (the service also covers the tab button, so this is the backup).
+ * - Explore reels: close at once. DM, feed and profile reels: the first one plays, the
+ *   first swipe to another reel closes it.
+ * - It never acts on DM or other screens.
+ *
+ * Every attempt is blocked, however often the user retries. An action that did not work
+ * (the first observation after the cooldown still shows the same blocked screen) escalates
+ * to a stronger one, ending at the launcher. Only if even that fails repeatedly does it
+ * pause, because then detection itself is probably broken.
  */
 data class ReelPolicy(
     val session: ViewerSession? = null,
     /** Last pager scroll, kept so a scroll just before the viewer is classified still counts. */
     val lastScroll: PagerScrolled? = null,
+    /** Selected tab from the last scan with the tab bar visible; viewers hide the tab bar. */
+    val lastSelectedTab: String? = null,
     /** The last action whose outcome is not known yet. */
     val pending: PendingAction? = null,
     val lastActionAt: Long? = null,
@@ -27,15 +44,15 @@ data class ReelPolicy(
     val pausedUntil: Long? = null,
 ) {
     /**
-     * A single reel the user opened. Swiping [pagerKey] away from [startIndex] snaps back.
-     * [sharedInDm] is the stronger origin signal (modal activity or sender markers).
+     * A reel the user opened. The first page change of [pagerKey] away from [startIndex]
+     * sets [swipedAway], and from then on the viewer is closed until it is gone.
      */
     data class ViewerSession(
         val startedAt: Long,
-        val sharedInDm: Boolean,
+        val origin: ReelOrigin,
         val pagerKey: String? = null,
         val startIndex: Int? = null,
-        val currentIndex: Int? = null,
+        val swipedAway: Boolean = false,
     )
 
     /**
@@ -71,55 +88,44 @@ data class ReelPolicy(
 
     private fun onScreen(input: ScreenSeen, settings: PolicySettings): PolicyResult {
         val classification = input.classification
+        val seen = if (classification.tabBarVisible && classification.selectedTab != null) {
+            copy(lastSelectedTab = classification.selectedTab)
+        } else {
+            this
+        }
         return when (classification.screen) {
-            Screen.UNKNOWN -> idle(input.atMillis, "not confident: reel pager without reel controls")
+            Screen.UNKNOWN -> seen.idle(input.atMillis, "not confident: reel pager without reel controls")
             Screen.DM, Screen.OTHER ->
-                PolicyResult(copy(session = null, pending = null), Decision.NONE, "on ${classification.screen}")
+                PolicyResult(seen.copy(session = null, pending = null), Decision.NONE, "on ${classification.screen}")
             Screen.REELS_TAB ->
                 if (settings.blockingEnabled) {
-                    copy(session = null).block(input.atMillis, Screen.REELS_TAB, Decision.GO_HOME, "Reels tab selected")
+                    seen.copy(session = null).block(input.atMillis, Screen.REELS_TAB, Decision.GO_HOME, "Reels tab selected")
                 } else {
-                    PolicyResult(copy(session = null, pending = null), Decision.NONE, "Reels tab, blocking disabled")
+                    PolicyResult(seen.copy(session = null, pending = null), Decision.NONE, "Reels tab, blocking disabled")
                 }
-            Screen.SINGLE_REEL -> onSingleReel(input.atMillis, classification, settings)
+            Screen.SINGLE_REEL -> seen.onReel(input.atMillis, classification, settings)
         }
     }
 
-    private fun onSingleReel(at: Long, classification: Classification, settings: PolicySettings): PolicyResult {
+    private fun onReel(at: Long, classification: Classification, settings: PolicySettings): PolicyResult {
         if (!settings.blockingEnabled) return PolicyResult(copy(pending = null), Decision.NONE, "blocking disabled")
         // An action against the Reels tab that led here worked: the Reels tab is gone.
         val base = if (pending?.target == Screen.SINGLE_REEL) this else copy(pending = null)
-        val origin = if (classification.sharedInDm) "shared in DM" else "Explore/feed/profile"
+        val origin = origin(classification)
         val current = base.session
-        val waiting = base.pending
-
-        if (current == null) {
-            if (!settings.allowSingleReel && classification.sharedInDm) {
-                return base.block(at, Screen.SINGLE_REEL, Decision.BACK, "reel opened ($origin), single reels off")
-            }
-            val recent = base.lastScroll?.takeIf { at - it.atMillis <= SETTLE_MS }
-            val session = ViewerSession(at, classification.sharedInDm, recent?.pagerKey, recent?.fromIndex, recent?.fromIndex)
-            val reason = if (settings.allowSingleReel) {
-                "allowed single reel ($origin)"
-            } else {
-                // Without a DM signal the pager in front could be the Reels tab kept alive behind
-                // another screen, so Back now could break that screen. Close on the first swipe instead.
-                "reel opened ($origin), single reels off: closing on first swipe"
-            }
-            return PolicyResult(base.copy(session = session), Decision.NONE, reason)
-        }
 
         return when {
-            waiting == null -> PolicyResult(base, Decision.NONE, "single reel allowed ($origin)")
-            waiting.last == Decision.SNAP_BACK && current.currentIndex == current.startIndex ->
-                PolicyResult(base.copy(pending = null), Decision.NONE, "snapped back to the opened reel")
-            else -> base.block(
-                at = at,
-                target = Screen.SINGLE_REEL,
-                startWith = waiting.base,
-                why = "still away from the opened reel",
-                direction = snapDirection(current),
-            )
+            origin == ReelOrigin.EXPLORE -> base.block(at, Screen.SINGLE_REEL, Decision.BACK, "reel opened from Explore")
+            origin == ReelOrigin.DM && !settings.allowSingleReel ->
+                base.block(at, Screen.SINGLE_REEL, Decision.BACK, "reel shared in DM, single reels off")
+            current == null -> {
+                val recent = base.lastScroll?.takeIf { at - it.atMillis <= SETTLE_MS }
+                val session = ViewerSession(at, origin, recent?.pagerKey, recent?.fromIndex)
+                PolicyResult(base.copy(session = session), Decision.NONE, "first reel allowed (from $origin)")
+            }
+            // Also enforces a swipe whose BACK was held back by the cooldown.
+            current.swipedAway -> base.block(at, Screen.SINGLE_REEL, Decision.BACK, "swiped to another reel")
+            else -> PolicyResult(base, Decision.NONE, "first reel playing (from ${current.origin})")
         }
     }
 
@@ -129,28 +135,29 @@ data class ReelPolicy(
 
         val tracked = copy(lastScroll = input)
         val current = session
-            ?: return PolicyResult(tracked, Decision.NONE, "pager scroll outside a single reel")
+            ?: return PolicyResult(tracked, Decision.NONE, "pager scroll outside a reel viewer")
         if (!settings.blockingEnabled) return PolicyResult(tracked, Decision.NONE, "blocking disabled")
 
         val start = current.startIndex
         val restart = { why: String ->
-            val session = current.copy(pagerKey = input.pagerKey, startIndex = index, currentIndex = index)
-            PolicyResult(tracked.copy(session = session, pending = null), Decision.NONE, "start index $index ($why)")
+            val session = current.copy(pagerKey = input.pagerKey, startIndex = index)
+            PolicyResult(tracked.copy(session = session), Decision.NONE, "start index $index ($why)")
         }
-        val moved = tracked.copy(session = current.copy(currentIndex = index))
         return when {
+            current.swipedAway -> tracked.block(input.atMillis, Screen.SINGLE_REEL, Decision.BACK, "still swiping")
             input.atMillis - current.startedAt < SETTLE_MS -> restart("settling")
             start == null -> restart("adopted late")
             input.pagerKey != current.pagerKey -> restart("different pager")
-            index == start -> PolicyResult(moved.copy(pending = null), Decision.NONE, "on the opened reel")
-            else -> moved.block(
-                at = input.atMillis,
-                target = Screen.SINGLE_REEL,
-                startWith = if (settings.allowSingleReel) Decision.SNAP_BACK else Decision.BACK,
-                why = "swiped from reel $start to $index",
-                direction = if (index > start) SnapDirection.BACKWARD else SnapDirection.FORWARD,
-            )
+            index == start -> PolicyResult(tracked, Decision.NONE, "on the opened reel")
+            else -> tracked.copy(session = current.copy(swipedAway = true))
+                .block(input.atMillis, Screen.SINGLE_REEL, Decision.BACK, "swiped from reel $start to $index")
         }
+    }
+
+    private fun origin(classification: Classification): ReelOrigin = when {
+        classification.sharedInDm -> ReelOrigin.DM
+        (classification.selectedTab ?: lastSelectedTab) == InstagramRules.SEARCH_TAB_ID -> ReelOrigin.EXPLORE
+        else -> ReelOrigin.OTHER
     }
 
     /**
@@ -158,13 +165,7 @@ data class ReelPolicy(
      * Called whenever the blocked screen is observed; observations inside the cooldown are
      * held back and retried at its end, so neither a slow UI nor a fast re-tap slips through.
      */
-    private fun block(
-        at: Long,
-        target: Screen,
-        startWith: Decision,
-        why: String,
-        direction: SnapDirection? = null,
-    ): PolicyResult {
+    private fun block(at: Long, target: Screen, startWith: Decision, why: String): PolicyResult {
         val paused = pausedUntil
         if (paused != null && at < paused) {
             return PolicyResult(this, Decision.NONE, "paused for ${paused - at} ms: detection may be broken ($why)", retryAtMillis = paused)
@@ -193,25 +194,13 @@ data class ReelPolicy(
             pausedUntil = null,
         )
         val reason = if (previous == null) why else "$why; ${previous.last} ineffective (streak $streak)"
-        return PolicyResult(
-            policy = acted,
-            decision = decision,
-            reason = "$reason: $decision",
-            snapDirection = direction.takeIf { decision == Decision.SNAP_BACK },
-            retryAtMillis = at + COOLDOWN_MS,
-        )
+        return PolicyResult(acted, decision, "$reason: $decision", retryAtMillis = at + COOLDOWN_MS)
     }
 
     /** No state change; if an action still awaits judgement, make sure a scan happens after its cooldown. */
     private fun idle(at: Long, reason: String): PolicyResult {
         val retry = pending?.let { it.actedAt + COOLDOWN_MS }?.takeIf { it > at }
         return PolicyResult(this, Decision.NONE, reason, retryAtMillis = retry)
-    }
-
-    private fun snapDirection(session: ViewerSession): SnapDirection {
-        val start = session.startIndex ?: return SnapDirection.BACKWARD
-        val currentIndex = session.currentIndex ?: return SnapDirection.BACKWARD
-        return if (currentIndex >= start) SnapDirection.BACKWARD else SnapDirection.FORWARD
     }
 
     companion object {
@@ -224,7 +213,6 @@ data class ReelPolicy(
         /** Each rung is tried twice before moving on; the launcher is the last resort. */
         fun ladder(startWith: Decision): List<Decision> = when (startWith) {
             Decision.GO_HOME -> listOf(Decision.GO_HOME, Decision.GO_HOME, Decision.GLOBAL_HOME)
-            Decision.SNAP_BACK -> listOf(Decision.SNAP_BACK, Decision.SNAP_BACK, Decision.BACK, Decision.BACK, Decision.GLOBAL_HOME)
             Decision.BACK -> listOf(Decision.BACK, Decision.BACK, Decision.GLOBAL_HOME)
             Decision.GLOBAL_HOME, Decision.NONE -> listOf(Decision.GLOBAL_HOME)
         }

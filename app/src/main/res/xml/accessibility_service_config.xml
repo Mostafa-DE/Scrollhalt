@@ -1,10 +1,12 @@
 <?xml version="1.0" encoding="utf-8"?>
+<!-- No packageNames filter: window-state events from other apps are needed to notice that
+     Instagram left the screen (to remove the Reels cover). The service reads only their
+     package name; everything else is ignored in code. -->
 <accessibility-service xmlns:android="http://schemas.android.com/apk/res/android"
-    android:accessibilityEventTypes="typeWindowStateChanged|typeWindowContentChanged|typeViewScrolled|typeViewClicked"
+    android:accessibilityEventTypes="typeWindowStateChanged|typeWindowContentChanged|typeViewScrolled|typeViewClicked|typeWindowsChanged"
     android:accessibilityFeedbackType="feedbackGeneric"
-    android:accessibilityFlags="flagReportViewIds"
+    android:accessibilityFlags="flagReportViewIds|flagRetrieveInteractiveWindows"
     android:canRetrieveWindowContent="true"
     android:description="@string/service_description"
     android:notificationTimeout="100"
-    android:packageNames="com.instagram.android"
     android:summary="@string/service_summary" />

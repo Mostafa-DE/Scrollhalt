@@ -4,62 +4,34 @@ import android.graphics.Rect
 import android.os.Build
 import android.view.accessibility.AccessibilityNodeInfo
 import app.instafocus.detect.Bounds
-import app.instafocus.detect.UiNode
+import app.instafocus.detect.NodeSource
+import app.instafocus.detect.SnapshotNode
+import app.instafocus.detect.copyTree
 
 /**
- * Immutable copy of the on-screen part of an accessibility tree, adapted to [UiNode].
- * Copying lets every live AccessibilityNodeInfo be released right after it is read, and
- * keeps the detector free of stale-node exceptions. Invisible subtrees are skipped
- * (Instagram keeps every tab loaded, so this is most of the tree).
+ * Copies a live accessibility tree into an immutable snapshot, so every
+ * AccessibilityNodeInfo is released right after it is read and the detector never sees a
+ * stale node.
  */
-data class NodeSnapshot(
-    override val viewId: String?,
-    override val isVisibleToUser: Boolean,
-    override val isSelected: Boolean,
-    override val bounds: Bounds,
-    override val children: List<UiNode>,
-) : UiNode {
-    companion object {
-        private const val MAX_DEPTH: Int = 60
-        private const val MAX_NODES: Int = 3_000
+object NodeSnapshot {
+    /** The caller still owns [root]. */
+    fun of(root: AccessibilityNodeInfo): SnapshotNode? = copyTree(root, AccessibilityNodeSource())
 
-        /** Copies [root]. The caller still owns [root]; every child is released here. */
-        fun of(root: AccessibilityNodeInfo): NodeSnapshot? = Builder().copy(root, depth = 0)
-    }
-
-    private class Builder {
-        private var count = 0
+    private class AccessibilityNodeSource : NodeSource<AccessibilityNodeInfo> {
         private val rect = Rect()
 
-        fun copy(node: AccessibilityNodeInfo, depth: Int): NodeSnapshot? = try {
-            count++
-            val visible = node.isVisibleToUser
-            node.getBoundsInScreen(rect)
-            // Read the bounds before visiting children: they reuse the same Rect.
-            val bounds = Bounds(rect.left, rect.top, rect.right, rect.bottom)
-            val children = if (visible && depth < MAX_DEPTH) copyChildren(node, depth) else emptyList()
-            NodeSnapshot(
-                viewId = node.viewIdResourceName,
-                isVisibleToUser = visible,
-                isSelected = node.isSelected,
-                bounds = bounds,
-                children = children,
-            )
-        } catch (_: RuntimeException) {
-            // The node went stale while we were reading it.
-            null
-        }
+        override fun viewId(node: AccessibilityNodeInfo): String? = node.viewIdResourceName
+        override fun isVisibleToUser(node: AccessibilityNodeInfo): Boolean = node.isVisibleToUser
+        override fun isSelected(node: AccessibilityNodeInfo): Boolean = node.isSelected
+        override fun childCount(node: AccessibilityNodeInfo): Int = node.childCount
+        override fun child(node: AccessibilityNodeInfo, index: Int): AccessibilityNodeInfo? = node.getChild(index)
+        override fun release(node: AccessibilityNodeInfo) = node.release()
 
-        private fun copyChildren(node: AccessibilityNodeInfo, depth: Int): List<NodeSnapshot> =
-            (0 until node.childCount).mapNotNull { index ->
-                if (count >= MAX_NODES) return@mapNotNull null
-                val child = node.getChild(index) ?: return@mapNotNull null
-                try {
-                    copy(child, depth + 1)
-                } finally {
-                    child.release()
-                }
-            }
+        /** Returns a value copy: the shared Rect must never leak past this call. */
+        override fun bounds(node: AccessibilityNodeInfo): Bounds {
+            node.getBoundsInScreen(rect)
+            return Bounds(rect.left, rect.top, rect.right, rect.bottom)
+        }
     }
 }
 

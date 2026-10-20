@@ -60,7 +60,23 @@ class ScreenClassifierTest {
     fun `hidden tab bar with reels selected is not the reels tab`() {
         val result = classify(MAIN_TAB, feed(), tabBar(selected = "clips_tab", visible = false))
         assertEquals(Screen.OTHER, result.screen)
-        assertNull(result.selectedTab)
+        assertFalse(result.tabBarVisible)
+        assertNull(result.reelsTabBounds)
+    }
+
+    @Test
+    fun `selected tab is read from hidden tab buttons`() {
+        // Explore-opened reel on 451: tab bar gone, search_tab still selected.
+        val result = classify(MAIN_TAB, reelViewer(), tabBar(selected = "search_tab", visible = false))
+        assertEquals(Screen.SINGLE_REEL, result.screen)
+        assertEquals("search_tab", result.selectedTab)
+    }
+
+    @Test
+    fun `visible reels tab reports its bounds for the cover`() {
+        val result = classify(INSTAGRAM_MAIN, feed(), *tabButtons(selected = "feed_tab"))
+        assertEquals(Screen.OTHER, result.screen)
+        assertEquals(Bounds(0, 2200, 200, 2400), result.reelsTabBounds)
     }
 
     @Test

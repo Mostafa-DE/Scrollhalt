@@ -14,8 +14,8 @@ Credits
   and adapted here.
 
 - frosen2/remove-reels (https://github.com/frosen2/remove-reels).
-  Studied for ideas only (remember the start index of the opened reel and snap
-  back when the user swipes away from it). That project has no license, so no
+  Studied for ideas only (remember the start index of the opened reel and react
+  when the user swipes away from it). That project has no license, so no
   code from it was copied; InstaFocus reimplements the idea in its own code.
 
 Instagram is a trademark of Meta Platforms, Inc. InstaFocus is not affiliated with,

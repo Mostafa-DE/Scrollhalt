@@ -4,19 +4,22 @@ import app.instafocus.detect.PolicyInput.PagerScrolled
 import app.instafocus.detect.PolicyInput.ScreenSeen
 import app.instafocus.detect.PolicyInput.ViewClicked
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class ReelPolicyTest {
-    private val reelsTab = Classification(Screen.REELS_TAB, selectedTab = "clips_tab")
+    private val reelsTab = Classification(Screen.REELS_TAB, tabBarVisible = true, selectedTab = "clips_tab")
     private val shared = Classification(Screen.SINGLE_REEL, sharedInDm = true)
-    private val single = Classification(Screen.SINGLE_REEL)
+    private val feedReel = Classification(Screen.SINGLE_REEL)
+    private val exploreReel = Classification(Screen.SINGLE_REEL, selectedTab = "search_tab")
     private val dm = Classification(Screen.DM)
-    private val feed = Classification(Screen.OTHER, selectedTab = "feed_tab")
+    private val feed = Classification(Screen.OTHER, tabBarVisible = true, selectedTab = "feed_tab")
+    private val searchScreen = Classification(Screen.OTHER, tabBarVisible = true, selectedTab = "search_tab")
     private val unknown = Classification(Screen.UNKNOWN)
 
     /** Feeds inputs one by one and keeps the latest policy. */
-    private class Run(val settings: PolicySettings = PolicySettings()) {
+    private class Run(var settings: PolicySettings = PolicySettings()) {
         var policy: ReelPolicy = ReelPolicy()
 
         fun feed(input: PolicyInput): PolicyResult = policy.reduce(input, settings).also { policy = it.policy }
@@ -24,6 +27,8 @@ class ReelPolicyTest {
         fun click(at: Long, name: String): PolicyResult = feed(ViewClicked(at, ig(name)))
         fun scroll(at: Long, index: Int, pager: String = "w1:pager"): PolicyResult = feed(PagerScrolled(at, pager, index))
     }
+
+    // Reels tab
 
     @Test
     fun `reels tab goes home`() {
@@ -42,151 +47,6 @@ class ReelPolicyTest {
         val run = Run()
         assertEquals(Decision.NONE, run.click(100, "feed_tab").decision)
         assertEquals(Decision.NONE, run.feed(ViewClicked(150, null)).decision)
-    }
-
-    @Test
-    fun `shared reel is allowed then a swipe snaps back`() {
-        val run = Run()
-        run.seen(0, dm)
-        assertEquals(Decision.NONE, run.seen(500, shared).decision)
-        run.scroll(600, 4)
-        assertEquals(Decision.NONE, run.scroll(3_000, 4).decision)
-        val swipe = run.scroll(3_200, 5)
-        assertEquals(Decision.SNAP_BACK, swipe.decision)
-        assertEquals(SnapDirection.BACKWARD, swipe.snapDirection)
-    }
-
-    @Test
-    fun `swipe upwards snaps forward`() {
-        val run = Run()
-        run.seen(0, shared)
-        run.scroll(700, 4)
-        val swipe = run.scroll(3_000, 3)
-        assertEquals(Decision.SNAP_BACK, swipe.decision)
-        assertEquals(SnapDirection.FORWARD, swipe.snapDirection)
-    }
-
-    @Test
-    fun `scroll just before the viewer is classified sets the start index`() {
-        val run = Run()
-        run.scroll(450, 2)
-        run.seen(500, single)
-        assertEquals(Decision.NONE, run.scroll(3_000, 2).decision)
-        assertEquals(Decision.SNAP_BACK, run.scroll(3_500, 3).decision)
-    }
-
-    @Test
-    fun `last index in the settle window wins`() {
-        val run = Run()
-        run.seen(500, single)
-        run.scroll(600, 0)
-        run.scroll(900, 7)
-        assertEquals(Decision.NONE, run.scroll(3_000, 7).decision)
-    }
-
-    @Test
-    fun `start index adopted late when none was seen`() {
-        val run = Run()
-        run.seen(500, single)
-        assertEquals(Decision.NONE, run.scroll(5_000, 3).decision)
-        assertEquals(Decision.SNAP_BACK, run.scroll(5_300, 4).decision)
-    }
-
-    @Test
-    fun `explore reel tracks the pager that scrolls`() {
-        // Two pagers exist; only the Explore one in front scrolls. A scroll from another
-        // pager restarts tracking instead of snapping.
-        val run = Run()
-        run.seen(0, single)
-        run.scroll(300, 0, pager = "w1:explore")
-        assertEquals(Decision.NONE, run.scroll(3_000, 9, pager = "w1:reelsTab").decision)
-        assertEquals(Decision.NONE, run.scroll(3_200, 9, pager = "w1:reelsTab").decision)
-        assertEquals(Decision.SNAP_BACK, run.scroll(4_000, 10, pager = "w1:reelsTab").decision)
-    }
-
-    @Test
-    fun `negative scroll index is ignored`() {
-        val run = Run()
-        run.seen(500, single)
-        run.scroll(600, 1)
-        assertEquals(Decision.NONE, run.scroll(3_000, -1).decision)
-    }
-
-    @Test
-    fun `pager scroll outside a single reel does nothing`() {
-        val run = Run()
-        run.seen(0, feed)
-        assertEquals(Decision.NONE, run.scroll(100, 3).decision)
-    }
-
-    @Test
-    fun `single reel stays allowed while the session lasts`() {
-        val run = Run()
-        run.seen(500, single)
-        val again = run.seen(9_000, single)
-        assertEquals(Decision.NONE, again.decision)
-        assertTrue(again.reason.contains("Explore/feed/profile"))
-    }
-
-    @Test
-    fun `unknown screens do not change state`() {
-        val run = Run()
-        run.seen(500, shared)
-        run.scroll(600, 2)
-        val before = run.policy
-        assertEquals(Decision.NONE, run.seen(2_000, unknown).decision)
-        assertEquals(before, run.policy)
-        assertEquals(Decision.SNAP_BACK, run.scroll(3_000, 3).decision)
-    }
-
-    @Test
-    fun `leaving the reel ends the session`() {
-        val run = Run()
-        run.seen(500, shared)
-        run.scroll(600, 2)
-        run.seen(2_000, dm)
-        assertEquals(Decision.NONE, run.scroll(3_000, 5).decision)
-    }
-
-    @Test
-    fun `single reels off presses back on a shared reel`() {
-        val run = Run(PolicySettings(allowSingleReel = false))
-        run.seen(0, dm)
-        assertEquals(Decision.BACK, run.seen(500, shared).decision)
-    }
-
-    @Test
-    fun `single reels off retries back after cooldown while the shared reel stays`() {
-        val run = Run(PolicySettings(allowSingleReel = false))
-        assertEquals(Decision.BACK, run.seen(500, shared).decision)
-        assertEquals(Decision.NONE, run.seen(700, shared).decision)
-        assertEquals(Decision.BACK, run.seen(1_300, shared).decision)
-    }
-
-    @Test
-    fun `single reels off without a dm signal waits for a swipe then goes back`() {
-        val run = Run(PolicySettings(allowSingleReel = false))
-        assertEquals(Decision.NONE, run.seen(500, single).decision)
-        run.scroll(600, 0)
-        assertEquals(Decision.BACK, run.scroll(3_000, 1).decision)
-    }
-
-    @Test
-    fun `dm screens are never acted on`() {
-        listOf(PolicySettings(), PolicySettings(allowSingleReel = false)).forEach { settings ->
-            val run = Run(settings)
-            (0L..20L).forEach { i -> assertEquals(Decision.NONE, run.seen(i * 50, dm).decision) }
-        }
-    }
-
-    @Test
-    fun `blocking disabled never acts`() {
-        val run = Run(PolicySettings(blockingEnabled = false))
-        assertEquals(Decision.NONE, run.seen(0, reelsTab).decision)
-        assertEquals(Decision.NONE, run.click(100, "clips_tab").decision)
-        assertEquals(Decision.NONE, run.seen(1_000, shared).decision)
-        run.scroll(1_100, 0)
-        assertEquals(Decision.NONE, run.scroll(4_000, 1).decision)
     }
 
     @Test
@@ -261,7 +121,7 @@ class ReelPolicyTest {
             assertEquals("attempt $i", Decision.GO_HOME, run.seen(at, reelsTab).decision)
             run.seen(at + 150, feed)
         }
-        assertEquals(null, run.policy.pausedUntil)
+        assertNull(run.policy.pausedUntil)
     }
 
     @Test
@@ -288,65 +148,24 @@ class ReelPolicyTest {
         assertTrue(broken.reason.contains("detection may be broken"))
         assertEquals(13_500L, broken.retryAtMillis)
         assertEquals(Decision.NONE, run.seen(10_000, reelsTab).decision)
-        val resumed = run.seen(13_500, reelsTab)
-        assertEquals(Decision.GO_HOME, resumed.decision)
+        assertEquals(Decision.GO_HOME, run.seen(13_500, reelsTab).decision)
     }
 
     @Test
-    fun `leaving instagram after the launcher counts as success`() {
+    fun `reopening instagram after the launcher worked never counts as a failure`() {
+        // Review lead 2: user keeps reopening Instagram on the Reels tab. Each launcher trip is
+        // followed by LeftApp, so the ladder restarts and the pause is never reached.
         val run = Run()
-        run.seen(0, reelsTab)
-        run.seen(700, reelsTab)
-        assertEquals(Decision.GLOBAL_HOME, run.seen(1_400, reelsTab).decision)
-        run.feed(PolicyInput.LeftApp(2_100))
-        val reopened = run.seen(5_000, reelsTab)
-        assertEquals(Decision.GO_HOME, reopened.decision)
-        assertEquals(0, reopened.policy.pending?.streak)
-    }
-
-    @Test
-    fun `snap back that does not take escalates to back then the launcher`() {
-        val run = Run()
-        run.seen(0, shared)
-        run.scroll(300, 4)
-        assertEquals(Decision.SNAP_BACK, run.scroll(3_000, 5).decision)
-        assertEquals(Decision.SNAP_BACK, run.seen(3_700, shared).decision)
-        assertEquals(Decision.BACK, run.seen(4_400, shared).decision)
-        assertEquals(Decision.BACK, run.seen(5_100, shared).decision)
-        assertEquals(Decision.GLOBAL_HOME, run.seen(5_800, shared).decision)
-    }
-
-    @Test
-    fun `snap back that takes resets the streak`() {
-        val run = Run()
-        run.seen(0, shared)
-        run.scroll(300, 4)
-        assertEquals(Decision.SNAP_BACK, run.scroll(3_000, 5).decision)
-        run.scroll(3_300, 4)
-        assertEquals(Decision.NONE, run.seen(3_800, shared).decision)
-        val again = run.scroll(6_000, 5)
-        assertEquals(Decision.SNAP_BACK, again.decision)
-        assertEquals(0, again.policy.pending?.streak)
-    }
-
-    @Test
-    fun `snap back seen working by a scan clears the pending action`() {
-        val run = Run()
-        run.seen(0, shared)
-        run.scroll(300, 4)
-        run.scroll(3_000, 5)
-        run.scroll(3_200, 4)
-        val check = run.seen(3_800, shared)
-        assertEquals(Decision.NONE, check.decision)
-        assertEquals(null, check.policy.pending)
-    }
-
-    @Test
-    fun `single reels off back on a shared reel escalates to the launcher`() {
-        val run = Run(PolicySettings(allowSingleReel = false))
-        assertEquals(Decision.BACK, run.seen(0, shared).decision)
-        assertEquals(Decision.BACK, run.seen(700, shared).decision)
-        assertEquals(Decision.GLOBAL_HOME, run.seen(1_400, shared).decision)
+        var at = 0L
+        repeat(10) {
+            run.seen(at, reelsTab)
+            run.seen(at + 700, reelsTab)
+            assertEquals(Decision.GLOBAL_HOME, run.seen(at + 1_400, reelsTab).decision)
+            run.feed(PolicyInput.LeftApp(at + 1_500))
+            at += 3_000
+        }
+        assertNull(run.policy.pausedUntil)
+        assertEquals(Decision.GO_HOME, run.seen(at, reelsTab).decision)
     }
 
     @Test
@@ -361,16 +180,256 @@ class ReelPolicyTest {
         // A retry time in the past would make the service rescan in a busy loop.
         val run = Run()
         run.seen(0, reelsTab)
-        assertEquals(null, run.seen(900, unknown).retryAtMillis)
-        assertEquals(null, run.click(950, "feed_tab").retryAtMillis)
+        assertNull(run.seen(900, unknown).retryAtMillis)
+        assertNull(run.click(950, "feed_tab").retryAtMillis)
     }
 
     @Test
-    fun `go home landing on a single reel counts as done`() {
+    fun `go home landing on a reel viewer counts as done`() {
         val run = Run()
         run.seen(0, reelsTab)
-        val result = run.seen(800, single)
+        val result = run.seen(800, feedReel)
         assertEquals(Decision.NONE, result.decision)
-        assertEquals(null, result.policy.pending)
+        assertNull(result.policy.pending)
+    }
+
+    // Single reels: first plays, swipe closes
+
+    @Test
+    fun `dm reel plays then a swipe closes it`() {
+        val run = Run()
+        run.seen(0, dm)
+        assertEquals(Decision.NONE, run.seen(500, shared).decision)
+        run.scroll(600, 4)
+        assertEquals(Decision.NONE, run.scroll(3_000, 4).decision)
+        val swipe = run.scroll(3_200, 5)
+        assertEquals(Decision.BACK, swipe.decision)
+        assertEquals(Decision.NONE, run.seen(3_500, dm).decision)
+        assertNull(run.policy.session)
+    }
+
+    @Test
+    fun `feed reel plays then a swipe closes it`() {
+        val run = Run()
+        run.seen(0, feed)
+        assertEquals(Decision.NONE, run.seen(500, feedReel).decision)
+        run.scroll(600, 0)
+        assertEquals(Decision.BACK, run.scroll(3_000, 1).decision)
+    }
+
+    @Test
+    fun `swipe upwards closes too`() {
+        val run = Run()
+        run.seen(0, shared)
+        run.scroll(700, 4)
+        assertEquals(Decision.BACK, run.scroll(3_000, 3).decision)
+    }
+
+    @Test
+    fun `back that does not close the viewer escalates to the launcher`() {
+        val run = Run()
+        run.seen(0, shared)
+        run.scroll(300, 4)
+        assertEquals(Decision.BACK, run.scroll(3_000, 5).decision)
+        assertEquals(Decision.BACK, run.seen(3_700, shared).decision)
+        assertEquals(Decision.GLOBAL_HOME, run.seen(4_400, shared).decision)
+    }
+
+    @Test
+    fun `swipe held back by the cooldown is enforced by the retry scan`() {
+        // Review lead 1: a swipe whose BACK is held back by the cooldown must not be forgotten.
+        val run = Run()
+        run.seen(0, shared)
+        run.scroll(100, 2)
+        // An unrelated action just happened (e.g. GO_HOME from a stray Reels tab click).
+        run.policy = run.policy.copy(lastActionAt = 2_900)
+        val held = run.scroll(3_000, 3)
+        assertEquals(Decision.NONE, held.decision)
+        assertEquals(3_600L, held.retryAtMillis)
+        assertEquals(Decision.BACK, run.seen(3_600, shared).decision)
+    }
+
+    @Test
+    fun `scroll just before the viewer is classified sets the start index`() {
+        val run = Run()
+        run.scroll(450, 2)
+        run.seen(500, feedReel)
+        assertEquals(Decision.NONE, run.scroll(3_000, 2).decision)
+        assertEquals(Decision.BACK, run.scroll(3_500, 3).decision)
+    }
+
+    @Test
+    fun `last index in the settle window wins`() {
+        val run = Run()
+        run.seen(500, feedReel)
+        run.scroll(600, 0)
+        run.scroll(900, 7)
+        assertEquals(Decision.NONE, run.scroll(3_000, 7).decision)
+    }
+
+    @Test
+    fun `start index adopted late when none was seen`() {
+        val run = Run()
+        run.seen(500, feedReel)
+        assertEquals(Decision.NONE, run.scroll(5_000, 3).decision)
+        assertEquals(Decision.BACK, run.scroll(5_300, 4).decision)
+    }
+
+    @Test
+    fun `scrolls of another pager restart tracking instead of closing`() {
+        val run = Run()
+        run.seen(0, feedReel)
+        run.scroll(300, 0, pager = "w1:front")
+        assertEquals(Decision.NONE, run.scroll(3_000, 9, pager = "w1:other").decision)
+        assertEquals(Decision.BACK, run.scroll(4_000, 10, pager = "w1:other").decision)
+    }
+
+    @Test
+    fun `negative scroll index is ignored`() {
+        val run = Run()
+        run.seen(500, feedReel)
+        run.scroll(600, 1)
+        assertEquals(Decision.NONE, run.scroll(3_000, -1).decision)
+    }
+
+    @Test
+    fun `pager scroll outside a reel viewer does nothing`() {
+        val run = Run()
+        run.seen(0, feed)
+        assertEquals(Decision.NONE, run.scroll(100, 3).decision)
+    }
+
+    @Test
+    fun `first reel stays allowed while the viewer lasts`() {
+        val run = Run()
+        run.seen(500, feedReel)
+        val again = run.seen(9_000, feedReel)
+        assertEquals(Decision.NONE, again.decision)
+        assertTrue(again.reason.contains("OTHER"))
+    }
+
+    @Test
+    fun `unknown screens do not change state`() {
+        val run = Run()
+        run.seen(500, shared)
+        run.scroll(600, 2)
+        val before = run.policy
+        assertEquals(Decision.NONE, run.seen(2_000, unknown).decision)
+        assertEquals(before, run.policy)
+        assertEquals(Decision.BACK, run.scroll(3_000, 3).decision)
+    }
+
+    @Test
+    fun `leaving the reel ends the session`() {
+        val run = Run()
+        run.seen(500, shared)
+        run.scroll(600, 2)
+        run.seen(2_000, dm)
+        assertEquals(Decision.NONE, run.scroll(3_000, 5).decision)
+    }
+
+    @Test
+    fun `single reels off closes a dm reel at once and escalates`() {
+        val run = Run(PolicySettings(allowSingleReel = false))
+        run.seen(0, dm)
+        assertEquals(Decision.BACK, run.seen(500, shared).decision)
+        assertEquals(Decision.BACK, run.seen(1_200, shared).decision)
+        assertEquals(Decision.GLOBAL_HOME, run.seen(1_900, shared).decision)
+    }
+
+    @Test
+    fun `single reels off still lets a feed reel play once`() {
+        val run = Run(PolicySettings(allowSingleReel = false))
+        assertEquals(Decision.NONE, run.seen(500, feedReel).decision)
+        run.scroll(600, 0)
+        assertEquals(Decision.BACK, run.scroll(3_000, 1).decision)
+    }
+
+    @Test
+    fun `turning single reels off applies to an open dm reel`() {
+        // Review lead 6.
+        val run = Run()
+        assertEquals(Decision.NONE, run.seen(0, shared).decision)
+        run.settings = PolicySettings(allowSingleReel = false)
+        assertEquals(Decision.BACK, run.seen(2_000, shared).decision)
+    }
+
+    // Explore
+
+    @Test
+    fun `explore reel is closed at once`() {
+        val run = Run()
+        run.seen(0, searchScreen)
+        assertEquals(Decision.BACK, run.seen(500, exploreReel).decision)
+        assertEquals(Decision.NONE, run.seen(800, searchScreen).decision)
+        assertNull(run.policy.pending)
+    }
+
+    @Test
+    fun `explore reel without a selected tab uses the last visible tab`() {
+        // If the hidden tab bar is missing from the tree, the tab seen last decides.
+        val run = Run()
+        run.seen(0, searchScreen)
+        assertEquals(Decision.BACK, run.seen(500, feedReel).decision)
+    }
+
+    @Test
+    fun `explore reel back ineffective twice goes to the launcher`() {
+        val run = Run()
+        assertEquals(Decision.BACK, run.seen(0, exploreReel).decision)
+        assertEquals(Decision.BACK, run.seen(700, exploreReel).decision)
+        assertEquals(Decision.GLOBAL_HOME, run.seen(1_400, exploreReel).decision)
+    }
+
+    @Test
+    fun `search screen without a reel in front is left alone`() {
+        val run = Run()
+        (0L..10L).forEach { i -> assertEquals(Decision.NONE, run.seen(i * 100, searchScreen).decision) }
+    }
+
+    @Test
+    fun `feed reel after leaving search is a first reel again`() {
+        val run = Run()
+        run.seen(0, searchScreen)
+        run.seen(500, feed)
+        assertEquals(Decision.NONE, run.seen(1_000, feedReel).decision)
+    }
+
+    @Test
+    fun `dm reel wins over a remembered search tab`() {
+        val run = Run()
+        run.seen(0, searchScreen)
+        assertEquals(Decision.NONE, run.seen(500, shared).decision)
+    }
+
+    // Safety
+
+    @Test
+    fun `dm screens are never acted on`() {
+        listOf(PolicySettings(), PolicySettings(allowSingleReel = false)).forEach { settings ->
+            val run = Run(settings)
+            (0L..20L).forEach { i -> assertEquals(Decision.NONE, run.seen(i * 50, dm).decision) }
+        }
+    }
+
+    @Test
+    fun `blocking disabled never acts`() {
+        val run = Run(PolicySettings(blockingEnabled = false))
+        assertEquals(Decision.NONE, run.seen(0, reelsTab).decision)
+        assertEquals(Decision.NONE, run.click(100, "clips_tab").decision)
+        assertEquals(Decision.NONE, run.seen(1_000, shared).decision)
+        assertEquals(Decision.NONE, run.seen(1_500, exploreReel).decision)
+        run.scroll(1_600, 0)
+        assertEquals(Decision.NONE, run.scroll(4_000, 1).decision)
+    }
+
+    @Test
+    fun `left app clears the session and pending action`() {
+        val run = Run()
+        run.seen(0, shared)
+        run.scroll(100, 1)
+        run.feed(PolicyInput.LeftApp(500))
+        assertNull(run.policy.session)
+        assertNull(run.policy.pending)
     }
 }

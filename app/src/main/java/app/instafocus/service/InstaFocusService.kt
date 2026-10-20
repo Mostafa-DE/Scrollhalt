@@ -4,12 +4,14 @@ import android.accessibilityservice.AccessibilityService
 import android.content.ComponentName
 import android.content.Intent
 import android.content.pm.PackageManager
+import android.os.Build
 import android.os.Handler
 import android.os.Looper
 import android.os.SystemClock
 import android.util.Log
 import android.view.accessibility.AccessibilityEvent
 import android.view.accessibility.AccessibilityNodeInfo
+import android.view.accessibility.AccessibilityWindowInfo
 import android.widget.Toast
 import app.instafocus.R
 import app.instafocus.data.AppSettings
@@ -24,7 +26,6 @@ import app.instafocus.detect.PolicyResult
 import app.instafocus.detect.PolicySettings
 import app.instafocus.detect.ReelPolicy
 import app.instafocus.detect.ScreenClassifier
-import app.instafocus.detect.SnapDirection
 import app.instafocus.detect.UiNode
 import app.instafocus.detect.onScreenIds
 import kotlinx.coroutines.CoroutineScope
@@ -33,9 +34,14 @@ import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancel
 import kotlinx.coroutines.launch
 
+/** Logcat tag for adb diagnosis (`adb logcat -s InstaFocus`). Ids and indexes only, never text. */
+internal const val LOG_TAG: String = "InstaFocus"
+
 /**
- * Watches Instagram's view tree and leaves the Reels feed when it appears. All work runs
- * on the main thread in response to events: there is no polling and nothing runs while idle.
+ * Watches Instagram's view tree, covers the Reels tab button, and leaves reels when they
+ * appear. All work runs on the main thread in response to events: no polling, nothing runs
+ * while idle. Events from other apps are used only to notice that Instagram is no longer
+ * in front (their package name; nothing else is read).
  */
 class InstaFocusService : AccessibilityService() {
     private val handler = Handler(Looper.getMainLooper())
@@ -43,43 +49,45 @@ class InstaFocusService : AccessibilityService() {
     private val retryRunnable = Runnable { safely("retry scan") { scan() } }
     private var scanPending = false
     private var scope: CoroutineScope? = null
+    private var cover: ReelsTabCover? = null
 
     private var settings = AppSettings()
     private var policy = ReelPolicy()
     private var activity: String? = null
+    private var inInstagram = false
     private var lastLogged: Pair<String, String>? = null
     private var lastScreen: String? = null
     private var lastToastAt = 0L
 
     override fun onServiceConnected() {
         super.onServiceConnected()
+        cover = ReelsTabCover(this) { showToast(R.string.toast_tab_hidden) }
         val serviceScope = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate)
         scope = serviceScope
         serviceScope.launch {
-            SettingsRepository(this@InstaFocusService).settings.collect { settings = it }
+            SettingsRepository(this@InstaFocusService).settings.collect {
+                settings = it
+                if (!it.blockingEnabled) cover?.hide()
+            }
         }
         ServiceState.setConnected(true)
     }
 
     override fun onAccessibilityEvent(event: AccessibilityEvent) {
-        if (event.packageName?.toString() != InstagramRules.PACKAGE) return
-        safely("event ${event.eventType}") { onInstagramEvent(event) }
-    }
-
-    private fun onInstagramEvent(event: AccessibilityEvent) {
-        when (event.eventType) {
-            AccessibilityEvent.TYPE_VIEW_CLICKED -> onClicked(event)
-            AccessibilityEvent.TYPE_VIEW_SCROLLED -> onScrolled(event)
-            AccessibilityEvent.TYPE_WINDOW_STATE_CHANGED -> {
-                trackActivity(event.className?.toString())
-                scheduleScan()
-            }
-            AccessibilityEvent.TYPE_WINDOW_CONTENT_CHANGED -> scheduleScan()
-            else -> Unit
+        if (event.packageName?.toString() == InstagramRules.PACKAGE) {
+            safely("event ${event.eventType}") { onInstagramEvent(event) }
+        } else if (event.eventType == AccessibilityEvent.TYPE_WINDOW_STATE_CHANGED ||
+            event.eventType == AccessibilityEvent.TYPE_WINDOWS_CHANGED
+        ) {
+            // Another window changed (launcher, other app, keyboard, shade): only check
+            // whether Instagram is still in front, and refresh the cover.
+            safely("window change") { onOtherWindowChanged() }
         }
     }
 
-    override fun onInterrupt() = Unit
+    override fun onInterrupt() {
+        cover?.hide()
+    }
 
     override fun onUnbind(intent: Intent?): Boolean {
         shutdown()
@@ -95,9 +103,34 @@ class InstaFocusService : AccessibilityService() {
         handler.removeCallbacks(scanRunnable)
         handler.removeCallbacks(retryRunnable)
         scanPending = false
+        cover?.hide()
         scope?.cancel()
         scope = null
         ServiceState.setConnected(false)
+    }
+
+    private fun onInstagramEvent(event: AccessibilityEvent) {
+        when (event.eventType) {
+            AccessibilityEvent.TYPE_VIEW_CLICKED -> onClicked(event)
+            AccessibilityEvent.TYPE_VIEW_SCROLLED -> onScrolled(event)
+            AccessibilityEvent.TYPE_WINDOW_STATE_CHANGED -> {
+                trackActivity(event.className?.toString())
+                scheduleScan()
+            }
+            AccessibilityEvent.TYPE_WINDOW_CONTENT_CHANGED, AccessibilityEvent.TYPE_WINDOWS_CHANGED -> scheduleScan()
+            else -> Unit
+        }
+    }
+
+    private fun onOtherWindowChanged() {
+        if (!inInstagram) return
+        if (!instagramInFront()) leftInstagram() else scheduleScan()
+    }
+
+    private fun leftInstagram() {
+        inInstagram = false
+        cover?.hide()
+        log("window", "left Instagram", apply(PolicyInput.LeftApp(now())), always = true)
     }
 
     /** Window-state events also fire for dialogs and popups; only real activities count. */
@@ -111,33 +144,33 @@ class InstaFocusService : AccessibilityService() {
         }
         if (isActivity && className != activity) {
             activity = className
-            Log.d(TAG, "activity=$className")
+            Log.d(LOG_TAG, "activity=$className")
             DebugLog.add(DebugEntry(System.currentTimeMillis(), "activity", className.substringAfterLast('.'), "-", "activity changed"))
         }
     }
 
     private fun onClicked(event: AccessibilityEvent) {
         val viewId = withSource(event) { it.viewIdResourceName }
-        if (verbose()) Log.v(TAG, "click event view=${viewId?.substringAfter(":id/") ?: "-"}")
+        if (verbose()) Log.v(LOG_TAG, "click event view=${viewId?.substringAfter(":id/") ?: "-"}")
         val result = apply(PolicyInput.ViewClicked(now(), viewId))
         log("click", "view=${viewId?.substringAfter(":id/") ?: "-"}", result)
-        perform(result, pager = null)
+        perform(result)
     }
 
     private fun onScrolled(event: AccessibilityEvent) {
-        withSource(event) { source ->
+        val result = withSource(event) { source ->
             val viewId = source.viewIdResourceName
-            if (InstagramRules.reelViewerIds.any { InstagramRules.matches(viewId, it) }) {
-                // AccessibilityNodeInfo equality is view identity (window + view id), so its
-                // hash tells two pagers apart even though they share a resource id.
-                val key = "${event.windowId}:${source.hashCode()}"
-                val result = apply(PolicyInput.PagerScrolled(now(), key, event.fromIndex))
-                val details = "act=${activityName()} from=${event.fromIndex} to=${event.toIndex} " +
-                    "count=${event.itemCount} pager=$key"
-                log("pager scroll", details, result, always = true)
-                perform(result, pager = source)
-            }
+            if (InstagramRules.reelViewerIds.none { InstagramRules.matches(viewId, it) }) return@withSource null
+            // AccessibilityNodeInfo equality is view identity (window + view id), so its hash
+            // tells two pagers apart even though they share a resource id.
+            val key = "${event.windowId}:${source.hashCode()}"
+            val scrolled = apply(PolicyInput.PagerScrolled(now(), key, event.fromIndex))
+            val details = "act=${activityName()} from=${event.fromIndex} to=${event.toIndex} " +
+                "count=${event.itemCount} pager=$key"
+            log("pager scroll", details, scrolled, always = true)
+            scrolled
         }
+        result?.let(::perform)
         scheduleScan()
     }
 
@@ -154,31 +187,34 @@ class InstaFocusService : AccessibilityService() {
 
     private fun scan() {
         scanPending = false
-        val root = try {
-            rootInActiveWindow
-        } catch (_: RuntimeException) {
-            null
-        }
+        val root = activeRoot()
         if (root == null) {
-            if (verbose()) Log.v(TAG, "scan: no active window root")
+            if (verbose()) Log.v(LOG_TAG, "scan: no active window root")
             return
         }
         try {
-            if (verbose()) Log.v(TAG, "scan: root package=${root.packageName} window=${root.windowId}")
             if (root.packageName?.toString() != InstagramRules.PACKAGE) {
-                log("scan", "outside Instagram", apply(PolicyInput.LeftApp(now())))
+                if (inInstagram) leftInstagram()
                 return
             }
+            inInstagram = true
             val snapshot = NodeSnapshot.of(root) ?: return
             if (verbose()) dumpTree(snapshot)
             if (settings.debugCapture) DebugLog.setSnapshot(snapshot.onScreenIds())
             val classification = ScreenClassifier.classify(snapshot, activity)
+            updateCover(classification)
             val result = apply(PolicyInput.ScreenSeen(now(), classification))
             log("scan", describe(classification), result)
-            perform(result, pager = null)
+            perform(result)
         } finally {
             root.release()
         }
+    }
+
+    /** Covers the Reels tab while the tab bar is on screen and no keyboard could be under the cover. */
+    private fun updateCover(classification: Classification) {
+        val bounds = classification.reelsTabBounds
+        if (settings.blockingEnabled && bounds != null && !keyboardShown()) cover?.show(bounds) else cover?.hide()
     }
 
     private fun apply(input: PolicyInput): PolicyResult {
@@ -194,25 +230,25 @@ class InstaFocusService : AccessibilityService() {
         handler.postAtTime(retryRunnable, atMillis)
     }
 
-    /** [pager] is the scroll event's source; only that pager may be scrolled back. */
-    private fun perform(result: PolicyResult, pager: AccessibilityNodeInfo?) {
+    private fun perform(result: PolicyResult) {
+        if (result.decision == Decision.NONE) return
+        // Events can arrive late: never press Back or Home in another app.
+        if (!instagramInFront()) {
+            log("action", "-", result.copy(reason = "skipped ${result.decision}: Instagram not in front"), always = true)
+            return
+        }
         val done = when (result.decision) {
             Decision.NONE -> return
             Decision.GO_HOME -> clickHomeTab() || performGlobalAction(GLOBAL_ACTION_BACK)
             Decision.BACK -> performGlobalAction(GLOBAL_ACTION_BACK)
-            Decision.SNAP_BACK -> scrollPager(pager, result.snapDirection) || performGlobalAction(GLOBAL_ACTION_BACK)
             Decision.GLOBAL_HOME -> performGlobalAction(GLOBAL_ACTION_HOME)
         }
         if (!done) log("action", "-", result.copy(reason = "action failed: ${result.decision}"), always = true)
-        showToast(if (result.decision == Decision.SNAP_BACK) R.string.toast_single_reel else R.string.toast_blocked)
+        showToast(R.string.toast_blocked)
     }
 
     private fun clickHomeTab(): Boolean {
-        val root = try {
-            rootInActiveWindow
-        } catch (_: RuntimeException) {
-            null
-        } ?: return false
+        val root = activeRoot() ?: return false
         return try {
             val nodes = root.findAccessibilityNodeInfosByViewId(InstagramRules.fullId(InstagramRules.HOME_TAB_ID))
             try {
@@ -220,27 +256,48 @@ class InstaFocusService : AccessibilityService() {
             } finally {
                 nodes.forEach { it.release() }
             }
-        } catch (_: RuntimeException) {
+        } catch (e: RuntimeException) {
+            Log.w(LOG_TAG, "home tab click failed: ${e.javaClass.simpleName}")
             false
         } finally {
             root.release()
         }
     }
 
-    private fun scrollPager(pager: AccessibilityNodeInfo?, direction: SnapDirection?): Boolean {
-        val action = when (direction) {
-            SnapDirection.FORWARD -> AccessibilityNodeInfo.ACTION_SCROLL_FORWARD
-            SnapDirection.BACKWARD, null -> AccessibilityNodeInfo.ACTION_SCROLL_BACKWARD
-        }
+    private fun instagramInFront(): Boolean {
+        val root = activeRoot() ?: return false
         return try {
-            pager?.performAction(action) ?: false
-        } catch (_: RuntimeException) {
-            false
+            root.packageName?.toString() == InstagramRules.PACKAGE
+        } finally {
+            root.release()
         }
     }
 
+    /** A keyboard window is on screen (window type only; nothing else about it is read). */
+    private fun keyboardShown(): Boolean = try {
+        val all = windows
+        try {
+            all.any { it.type == AccessibilityWindowInfo.TYPE_INPUT_METHOD }
+        } finally {
+            if (Build.VERSION.SDK_INT < Build.VERSION_CODES.TIRAMISU) {
+                @Suppress("DEPRECATION")
+                all.forEach { it.recycle() }
+            }
+        }
+    } catch (e: RuntimeException) {
+        Log.w(LOG_TAG, "window list failed: ${e.javaClass.simpleName}")
+        false
+    }
+
+    private fun activeRoot(): AccessibilityNodeInfo? = try {
+        rootInActiveWindow
+    } catch (e: RuntimeException) {
+        Log.w(LOG_TAG, "active window root failed: ${e.javaClass.simpleName}")
+        null
+    }
+
     /** Runs [block] on the event's source node and releases it; null if there is none or it is stale. */
-    private fun <T> withSource(event: AccessibilityEvent, block: (AccessibilityNodeInfo) -> T): T? = try {
+    private fun <T> withSource(event: AccessibilityEvent, block: (AccessibilityNodeInfo) -> T?): T? = try {
         event.source?.let { source ->
             try {
                 block(source)
@@ -248,20 +305,20 @@ class InstaFocusService : AccessibilityService() {
                 source.release()
             }
         }
-    } catch (_: RuntimeException) {
+    } catch (e: RuntimeException) {
+        Log.w(LOG_TAG, "event source failed: ${e.javaClass.simpleName}")
         null
     }
 
     /**
      * Debug log: actions and [always] entries, other results only when the screen or reason
-     * changes. Logcat (tag [TAG], for adb diagnosis): every action and every screen change.
-     * Ids and indexes only, never node text or content descriptions.
+     * changes. Logcat: every action and every screen change. Ids and indexes only.
      */
     private fun log(eventType: String, screen: String, result: PolicyResult, always: Boolean = false) {
         val screenChanged = eventType == "scan" && screen != lastScreen
         if (eventType == "scan") lastScreen = screen
-        if (result.decision != Decision.NONE || screenChanged) {
-            Log.d(TAG, "$eventType $screen decision=${result.decision} reason=${result.reason}")
+        if (result.decision != Decision.NONE || screenChanged || always) {
+            Log.d(LOG_TAG, "$eventType $screen decision=${result.decision} reason=${result.reason}")
         }
         val key = screen to result.reason
         if (!always && result.decision == Decision.NONE && key == lastLogged) return
@@ -289,12 +346,12 @@ class InstaFocusService : AccessibilityService() {
         try {
             block()
         } catch (e: RuntimeException) {
-            Log.e(TAG, "$what failed", e)
+            Log.e(LOG_TAG, "$what failed", e)
         }
     }
 
     /** Verbose diagnostics: debug capture on, or `adb shell setprop log.tag.InstaFocus VERBOSE`. */
-    private fun verbose(): Boolean = settings.debugCapture || Log.isLoggable(TAG, Log.VERBOSE)
+    private fun verbose(): Boolean = settings.debugCapture || Log.isLoggable(LOG_TAG, Log.VERBOSE)
 
     /** Ids, flags and bounds of every node in the snapshot. Never text or content descriptions. */
     private fun dumpTree(root: UiNode) {
@@ -302,7 +359,7 @@ class InstaFocusService : AccessibilityService() {
             val b = node.bounds
             val flags = (if (node.isVisibleToUser) "V" else "-") + (if (node.isSelected) "S" else "-")
             val id = node.viewId?.substringAfter(":id/") ?: "."
-            Log.v(TAG, "tree ${" ".repeat(depth)}$id $flags ${b.left},${b.top}-${b.right},${b.bottom} children=${node.children.size}")
+            Log.v(LOG_TAG, "tree ${" ".repeat(depth)}$id $flags ${b.left},${b.top}-${b.right},${b.bottom} children=${node.children.size}")
             node.children.forEach { visit(it, depth + 1) }
         }
         visit(root, 0)
@@ -310,12 +367,10 @@ class InstaFocusService : AccessibilityService() {
 
     private fun activityName(): String = activity?.substringAfterLast('.') ?: "unknown"
 
-
     private fun now(): Long = SystemClock.uptimeMillis()
 
     private companion object {
         const val SCAN_DELAY_MS: Long = 100
         const val TOAST_INTERVAL_MS: Long = 5_000
-        const val TAG: String = "InstaFocus"
     }
 }

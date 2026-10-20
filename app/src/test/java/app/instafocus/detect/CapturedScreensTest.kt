@@ -55,13 +55,21 @@ class CapturedScreensTest {
     }
 
     @Test
-    fun `explore reel in front of the reels tab pager is allowed`() {
+    fun `explore reel in front of the reels tab pager is closed`() {
         val tree = arrayOf<UiNode>(
             reelViewer(bounds = Bounds(0, 0, 1080, 2186)),
             reelViewer(bounds = Bounds(0, 0, 1080, 2017)),
             tabBar(selected = "search_tab", visible = false),
         )
-        both.forEach { assertEquals(Decision.NONE, decide(it, MAIN_TAB, *tree)) }
+        both.forEach { assertEquals(Decision.BACK, decide(it, MAIN_TAB, *tree)) }
+    }
+
+    @Test
+    fun `search screen with the reels page off screen is left alone`() {
+        val search = node("explore", bounds = SCREEN, children = arrayOf(node("action_bar_search_edit_text")))
+        both.forEach {
+            assertEquals(Decision.NONE, decide(it, INSTAGRAM_MAIN, search, offscreenReelsPage(), *tabButtons(selected = "search_tab")))
+        }
     }
 
     @Test

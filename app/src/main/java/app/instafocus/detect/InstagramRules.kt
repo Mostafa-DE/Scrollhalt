@@ -69,6 +69,13 @@ object InstagramRules {
     const val HOME_TAB_ID: String = "feed_tab"
 
     /**
+     * Search/Explore tab. A reel opened while this tab is selected (from the Explore grid,
+     * or from a profile reached through search) is closed at once. Observed on 451: the
+     * Explore reel runs in the main activity with the tab bar gone and search_tab selected.
+     */
+    const val SEARCH_TAB_ID: String = "search_tab"
+
+    /**
      * Bottom tab buttons, in bar order. On 451 a tab reports isSelected only after a tab
      * switch; after a cold start no tab is selected. Then the Reels tab is recognised by
      * its pager being on screen: tab pages live in a ViewPager (`swipeable_tab_view_pager`)

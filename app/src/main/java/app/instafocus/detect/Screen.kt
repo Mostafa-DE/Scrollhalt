@@ -4,7 +4,7 @@ enum class Screen {
     /** The Reels tab: tab bar on screen with the Reels tab selected. */
     REELS_TAB,
 
-    /** A single reel opened from a DM, Explore, the feed or a profile: pager on screen, no tab bar. */
+    /** A reel opened from a DM, Explore, the feed or a profile: pager on screen, no tab bar. */
     SINGLE_REEL,
 
     /** DM thread or inbox. Never acted on. */
@@ -23,8 +23,13 @@ data class Classification(
     val sharedInDm: Boolean = false,
     /** The bottom tab bar is on screen (for the debug log). */
     val tabBarVisible: Boolean = false,
-    /** Name of the selected bottom tab that is on screen, if any (for the debug log). */
+    /**
+     * Name of the selected bottom tab, if any tab reports it. Read from hidden tab buttons
+     * too, since the Explore-opened reel hides the tab bar but keeps search_tab selected.
+     */
     val selectedTab: String? = null,
+    /** On-screen bounds of the Reels tab button, while the tab bar is visible: where the cover goes. */
+    val reelsTabBounds: Bounds? = null,
     /** Current Instagram activity class, if known (for the debug log). */
     val activity: String? = null,
 )

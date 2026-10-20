@@ -9,15 +9,14 @@ package app.instafocus.detect
  */
 object ScreenClassifier {
     fun classify(root: UiNode, activity: String?): Classification {
-        val tabButtons = root.walk()
-            .filter { node -> node.isOnScreen() && InstagramRules.tabIds.any { InstagramRules.matches(node.viewId, it) } }
-            .toList()
+        val allTabs = root.walk().mapNotNull { node -> tabName(node)?.let { node to it } }.toList()
+        val tabButtons = allTabs.filter { (node, _) -> node.isOnScreen() }
         val tabBarVisible = tabButtons.isNotEmpty() || root.findOnScreen(listOf(InstagramRules.TAB_BAR_ID)) != null
-        val selectedTab = tabButtons.firstOrNull { it.isSelected }
-            ?.let { node -> InstagramRules.tabIds.first { InstagramRules.matches(node.viewId, it) } }
+        val selectedTab = (tabButtons.firstOrNull { (node, _) -> node.isSelected } ?: allTabs.firstOrNull { (node, _) -> node.isSelected })
+            ?.second
+        val reelsTabBounds = tabButtons.firstOrNull { (_, name) -> name == InstagramRules.REELS_TAB_ID }?.first?.bounds
         val pagerOnScreen = root.findOnScreen(InstagramRules.reelViewerIds) != null
-        val reelsTabSelected = root.walk().any { it.isSelected && InstagramRules.matches(it.viewId, InstagramRules.REELS_TAB_ID) }
-        val reelInFront = !tabBarVisible && !reelsTabSelected && pagerOnScreen
+        val reelInFront = !tabBarVisible && selectedTab != InstagramRules.REELS_TAB_ID && pagerOnScreen
         val reelUiOnScreen = root.findOnScreen(InstagramRules.reelUiIds) != null
         val sharedSignal = InstagramRules.isActivity(activity, InstagramRules.MODAL_ACTIVITY) ||
             root.findOnScreen(InstagramRules.sharedReelMarkerIds) != null
@@ -38,7 +37,10 @@ object ScreenClassifier {
             sharedInDm = screen == Screen.SINGLE_REEL && sharedSignal,
             tabBarVisible = tabBarVisible,
             selectedTab = selectedTab,
+            reelsTabBounds = reelsTabBounds,
             activity = activity,
         )
     }
+
+    private fun tabName(node: UiNode): String? = InstagramRules.tabIds.firstOrNull { InstagramRules.matches(node.viewId, it) }
 }
