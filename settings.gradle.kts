@@ -14,5 +14,5 @@ dependencyResolutionManagement {
     }
 }
 
-rootProject.name = "InstaFocus"
+rootProject.name = "Scrollhalt"
 include(":app")

@@ -4,11 +4,11 @@ plugins {
 }
 
 android {
-    namespace = "app.instafocus"
+    namespace = "app.scrollhalt"
     compileSdk = 37
 
     defaultConfig {
-        applicationId = "app.instafocus"
+        applicationId = "app.scrollhalt"
         minSdk = 28
         targetSdk = 36
         versionCode = 1

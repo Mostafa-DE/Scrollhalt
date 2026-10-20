@@ -1,5 +1,5 @@
-InstaFocus
-Copyright (C) 2026 InstaFocus contributors
+Scrollhalt
+Copyright (C) 2026 Scrollhalt contributors
 
 This program is free software: you can redistribute it and/or modify it under the
 terms of the GNU General Public License version 3 as published by the Free Software
@@ -16,7 +16,7 @@ Credits
 - frosen2/remove-reels (https://github.com/frosen2/remove-reels).
   Studied for ideas only (remember the start index of the opened reel and react
   when the user swipes away from it). That project has no license, so no
-  code from it was copied; InstaFocus reimplements the idea in its own code.
+  code from it was copied; Scrollhalt reimplements the idea in its own code.
 
-Instagram is a trademark of Meta Platforms, Inc. InstaFocus is not affiliated with,
+Instagram is a trademark of Meta Platforms, Inc. Scrollhalt is not affiliated with,
 endorsed by, or sponsored by Meta.

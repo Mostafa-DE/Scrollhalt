@@ -1,18 +1,18 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
-    <string name="app_name">InstaFocus</string>
+    <string name="app_name">Scrollhalt</string>
 
     <string name="service_summary">Keeps you out of the Instagram Reels feed.</string>
-    <string name="service_description">InstaFocus reads the names of on-screen views inside the Instagram app (for example \"reel viewer\" or \"Reels tab\") to notice when Reels open, covers the Reels tab button, and taps Home or Back for you. From other apps it only notices that a window changed, to know you left Instagram. It does not read messages, captions or usernames, and nothing is stored or sent anywhere: the app has no internet permission.</string>
+    <string name="service_description">Scrollhalt reads the names of on-screen views inside the Instagram app (for example \"reel viewer\" or \"Reels tab\") to notice when Reels open, covers the Reels tab button, and taps Home or Back for you. From other apps it only notices that a window changed, to know you left Instagram. It does not read messages, captions or usernames, and nothing is stored or sent anywhere: the app has no internet permission.</string>
 
     <string name="toast_blocked">Reels blocked</string>
-    <string name="toast_tab_hidden">Reels hidden by InstaFocus</string>
+    <string name="toast_tab_hidden">Reels hidden by Scrollhalt</string>
 
     <string name="status_title">Status</string>
     <string name="status_off">Off</string>
-    <string name="status_off_detail">The accessibility service is not enabled. Open Accessibility settings and turn on InstaFocus.</string>
+    <string name="status_off_detail">The accessibility service is not enabled. Open Accessibility settings and turn on Scrollhalt.</string>
     <string name="status_not_running">Enabled, not running</string>
-    <string name="status_not_running_detail">The service is enabled but not connected. Toggle it off and on again, and set InstaFocus to Never sleeping in battery settings.</string>
+    <string name="status_not_running_detail">The service is enabled but not connected. Toggle it off and on again, and set Scrollhalt to Never sleeping in battery settings.</string>
     <string name="status_protecting">Protecting</string>
     <string name="status_protecting_detail">The Reels feed is blocked in Instagram.</string>
     <string name="status_paused">Paused</string>
@@ -24,12 +24,12 @@
     <string name="open_accessibility_settings">Open Accessibility settings</string>
 
     <string name="setup_title">Setup help</string>
-    <string name="setup_restricted">If the InstaFocus switch is greyed out in Accessibility settings, Android has restricted it because the app was not installed from a store. Open App info, tap the three-dot menu at the top right, choose Allow restricted settings, confirm, then go back and enable the service.</string>
-    <string name="setup_samsung">Samsung phones may stop the service in the background. In Settings > Battery > Background usage limits, add InstaFocus to Never sleeping apps (or open App info > Battery and choose Unrestricted).</string>
+    <string name="setup_restricted">If the Scrollhalt switch is greyed out in Accessibility settings, Android has restricted it because the app was not installed from a store. Open App info, tap the three-dot menu at the top right, choose Allow restricted settings, confirm, then go back and enable the service.</string>
+    <string name="setup_samsung">Samsung phones may stop the service in the background. In Settings > Battery > Background usage limits, add Scrollhalt to Never sleeping apps (or open App info > Battery and choose Unrestricted).</string>
     <string name="open_app_info">Open App info</string>
 
     <string name="how_title">How it works</string>
-    <string name="how_body">InstaFocus looks at Instagram\'s view ids, not at what is on the screen. It covers the Reels tab button with a patch in the tab bar\'s colour, and if the Reels tab opens anyway it taps Home. A reel shared in a DM, or opened from the feed or a profile, plays once; swiping to the next reel closes it. Reels opened from the Explore grid close right away. It reacts after the viewer appears, so a frame of a reel may flash. It depends on Instagram\'s internal names and layout, so an Instagram update can break it until the rules are updated. It never acts when it is unsure, so it will rather miss a reel than block a chat.</string>
+    <string name="how_body">Scrollhalt looks at Instagram\'s view ids, not at what is on the screen. It covers the Reels tab button with a patch in the tab bar\'s colour, and if the Reels tab opens anyway it taps Home. A reel shared in a DM, or opened from the feed or a profile, plays once; swiping to the next reel closes it. Reels opened from the Explore grid close right away. It reacts after the viewer appears, so a frame of a reel may flash. It depends on Instagram\'s internal names and layout, so an Instagram update can break it until the rules are updated. It never acts when it is unsure, so it will rather miss a reel than block a chat.</string>
 
     <string name="debug_open">Debug log</string>
     <string name="debug_title">Debug log</string>
@@ -41,5 +41,5 @@
     <string name="debug_empty">No entries yet. Open Instagram with the service running.</string>
     <string name="debug_snapshot_count">View ids in snapshot: %1$d</string>
     <string name="debug_copied">Snapshot copied</string>
-    <string name="debug_clip_label">InstaFocus view ids</string>
+    <string name="debug_clip_label">Scrollhalt view ids</string>
 </resources>

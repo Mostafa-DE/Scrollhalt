@@ -1,15 +1,18 @@
-# InstaFocus
+# Scrollhalt
 
-InstaFocus is an Android accessibility service that keeps you out of the Instagram
-Reels feed while the official Instagram app stays fully usable: feed, Stories, DMs,
-profiles, Explore and search all work as normal.
+Scrollhalt is a Reels blocker for Instagram: an Android accessibility service that keeps
+you out of the Reels feed while the official Instagram app stays fully usable: feed,
+Stories, DMs, profiles, Explore and search all work as normal.
+
+> Scrollhalt is not affiliated with, endorsed or sponsored by Instagram or Meta.
+> Instagram is a trademark of Meta Platforms, Inc.
 
 - The **Reels tab** button is covered so it cannot be tapped; if the tab opens anyway,
   you are sent to **Home**.
 - A reel someone **sends you in a DM**, or one from the **feed** or a **profile**, plays.
   Swiping to the next reel closes the viewer.
-- Reels opened from **Explore** (or anywhere in the Search tab) are closed at once;
-  search itself keeps working.
+- Reels opened from the **Explore grid** are closed at once; search, results and
+  profiles found by search keep working.
 - No permissions, no internet access, no data stored or sent. The accessibility
   service reads view ids (internal names like `clips_viewer_view_pager`), never
   text, captions, usernames or messages.
@@ -20,7 +23,7 @@ Requirements: JDK 17 or newer (tested with JDK 21) and the Android SDK with
 platform `android-37.0` and build-tools 36.0.0.
 
 ```sh
-cd InstaFocus
+cd Scrollhalt
 export JAVA_HOME=/usr/lib/jvm/java-21-openjdk-amd64
 echo "sdk.dir=$HOME/Android/Sdk" > local.properties   # if ANDROID_HOME is not set
 ./gradlew testDebugUnitTest lintDebug assembleDebug
@@ -51,27 +54,34 @@ minSdk 28.
 3. Install:
    ```sh
    adb -s <serial> install -r app/build/outputs/apk/debug/app-debug.apk
-   adb -s <serial> shell dumpsys package app.instafocus | grep versionName
+   adb -s <serial> shell dumpsys package app.scrollhalt | grep versionName
    ```
+4. Diagnostics: `adb -s <serial> logcat -s Scrollhalt`.
+
+**Upgrading from InstaFocus:** the app was renamed and its package changed from
+`app.instafocus` to `app.scrollhalt`, so the renamed build installs as a **new app**.
+Uninstall the old one (`adb -s <serial> uninstall app.instafocus`), then enable the
+Scrollhalt accessibility service again, including **Allow restricted settings** and
+**Never sleeping apps** (below). Settings start from their defaults.
 
 ## Enable the service
 
-1. Open InstaFocus and tap **Open Accessibility settings**.
-2. Find InstaFocus (on Samsung: Accessibility > Installed apps) and switch it on.
+1. Open Scrollhalt and tap **Open Accessibility settings**.
+2. Find Scrollhalt (on Samsung: Accessibility > Installed apps) and switch it on.
 3. **If the switch is greyed out** ("Restricted setting"): Android blocks
-   accessibility for apps installed outside an app store. In InstaFocus tap
+   accessibility for apps installed outside an app store. In Scrollhalt tap
    **Open App info**, then the three-dot menu at the top right >
    **Allow restricted settings**, confirm with your PIN or fingerprint, and go back
    to step 2.
 4. **Samsung battery**: Settings > Battery > Background usage limits >
-   **Never sleeping apps** > add InstaFocus. Otherwise One UI may stop the service.
-5. The status card in InstaFocus shows **Protecting** when everything is set.
+   **Never sleeping apps** > add Scrollhalt. Otherwise One UI may stop the service.
+5. The status card in Scrollhalt shows **Protecting** when everything is set.
    "Enabled, not running" means Android has the service switched on but it is not
    connected; toggle it off and on.
 
 ## How detection works
 
-Everything that decides what to do lives in `app/src/main/java/app/instafocus/detect/`,
+Everything that decides what to do lives in `app/src/main/java/app/scrollhalt/detect/`,
 which is plain Kotlin (no Android imports) and unit tested. The signals below were
 confirmed on the phone with Instagram 451.0.0.53.80, from the accessibility tree.
 
@@ -79,11 +89,11 @@ What it does:
 
 - **Reels tab: hidden.** An accessibility overlay (no extra permission) covers the Reels
   tab button with a patch in the tab bar's colour (black in dark mode, white in light
-  mode) and swallows taps on it ("Reels hidden by InstaFocus"). It is placed on the
+  mode) and swallows taps on it ("Reels hidden by Scrollhalt"). It is placed on the
   button's on-screen bounds on every scan and removed when the tab bar is not on screen
   (threads, viewers), when a keyboard is shown, when Instagram is not in front, when
   blocking is off, and when the service stops. If the Reels tab opens anyway (a link,
-  Instagram restoring it), InstaFocus taps Home.
+  Instagram restoring it), Scrollhalt taps Home.
 - **Explore grid reels: closed at once** (Back). What counts is where the reel was opened
   from: the last screen before the viewer. From the Explore grid (Search tab, grid cells
   `image_preview` on screen), or from an unknown screen inside the Search tab, it closes.
@@ -144,23 +154,23 @@ Flow:
    - Before any action the service checks that Instagram is still in front, so a late
      event can never press Back or Home in another app.
 4. For adb diagnosis, actions, screen changes, cover moves and leaving Instagram are
-   logged to logcat with tag `InstaFocus` (`adb logcat -s InstaFocus`): activity, screen,
+   logged to logcat with tag `Scrollhalt` (`adb logcat -s Scrollhalt`): activity, screen,
    selected tab, tab bar visibility, pager indexes, decision and reason. Ids and indexes
    only, never text. With **Capture visible view ids** on, or
-   `adb shell setprop log.tag.InstaFocus VERBOSE`, every scan also logs the whole tree
-   (id, visible/selected flags, bounds) and every click; `setprop log.tag.InstaFocus ""`
+   `adb shell setprop log.tag.Scrollhalt VERBOSE`, every scan also logs the whole tree
+   (id, visible/selected flags, bounds) and every click; `setprop log.tag.Scrollhalt ""`
    turns that off.
 
 ## Updating InstagramRules after an Instagram update
 
 All Instagram view ids are in one file:
-`app/src/main/java/app/instafocus/detect/InstagramRules.kt`.
+`app/src/main/java/app/scrollhalt/detect/InstagramRules.kt`.
 
-1. In InstaFocus open **Debug log** and switch on **Capture visible view ids**. The log
+1. In Scrollhalt open **Debug log** and switch on **Capture visible view ids**. The log
    also shows, for every scan, the screen, the selected tab and the activity, and for
    every pager scroll its `fromIndex`, `toIndex`, `itemCount` and which pager it was.
 2. Open Instagram on the screen that is misdetected (for example the Reels tab),
-   return to InstaFocus and tap **Copy snapshot**. The clipboard now holds the ids of
+   return to Scrollhalt and tap **Copy snapshot**. The clipboard now holds the ids of
    the views that were on screen. It contains no text, usernames or messages.
 3. Compare the ids with the lists in `InstagramRules` and update them. Ids match
    either in full (`com.instagram.android:id/clips_tab`) or by the part after `:id/`.
