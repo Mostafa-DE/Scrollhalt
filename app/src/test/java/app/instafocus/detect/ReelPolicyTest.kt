@@ -190,33 +190,169 @@ class ReelPolicyTest {
     }
 
     @Test
-    fun `cooldown suppresses a second action within 700 ms`() {
+    fun `cooldown holds a second action back and asks for a retry`() {
         val run = Run()
-        assertEquals(Decision.GO_HOME, run.click(0, "clips_tab").decision)
+        val first = run.click(0, "clips_tab")
+        assertEquals(Decision.GO_HOME, first.decision)
+        assertEquals(700L, first.retryAtMillis)
         val second = run.seen(300, reelsTab)
         assertEquals(Decision.NONE, second.decision)
         assertTrue(second.reason.contains("cooldown"))
+        assertEquals(700L, second.retryAtMillis)
         assertEquals(Decision.GO_HOME, run.seen(800, reelsTab).decision)
     }
 
     @Test
-    fun `loop guard pauses after three actions in five seconds`() {
+    fun `fast re-entry during the cooldown is blocked on the retry`() {
         val run = Run()
         assertEquals(Decision.GO_HOME, run.seen(0, reelsTab).decision)
-        assertEquals(Decision.GO_HOME, run.seen(1_000, reelsTab).decision)
-        assertEquals(Decision.GO_HOME, run.seen(2_000, reelsTab).decision)
-        val tripped = run.seen(3_000, reelsTab)
-        assertEquals(Decision.NONE, tripped.decision)
-        assertTrue(tripped.reason.contains("loop guard"))
-        assertEquals(Decision.NONE, run.seen(12_000, reelsTab).decision)
-        assertEquals(Decision.GO_HOME, run.seen(13_100, reelsTab).decision)
+        run.seen(200, feed)
+        val early = run.seen(400, reelsTab)
+        assertEquals(Decision.NONE, early.decision)
+        assertEquals(700L, early.retryAtMillis)
+        val retried = run.seen(700, reelsTab)
+        assertEquals(Decision.GO_HOME, retried.decision)
+        assertTrue(!retried.reason.contains("ineffective"))
     }
 
     @Test
-    fun `actions spread over more than five seconds do not trip the guard`() {
+    fun `re-entering the reels tab ten times is blocked every time`() {
         val run = Run()
-        listOf(0L, 3_000L, 6_000L, 9_000L, 12_000L).forEach { at ->
-            assertEquals(Decision.GO_HOME, run.seen(at, reelsTab).decision)
+        (0 until 10).forEach { i ->
+            val at = i * 1_000L
+            assertEquals("attempt $i", Decision.GO_HOME, run.seen(at, reelsTab).decision)
+            assertEquals(Decision.NONE, run.seen(at + 400, feed).decision)
         }
+    }
+
+    @Test
+    fun `reels tab click after a successful go home starts fresh`() {
+        val run = Run()
+        run.seen(0, reelsTab)
+        run.seen(300, feed)
+        val click = run.click(1_000, "clips_tab")
+        assertEquals(Decision.GO_HOME, click.decision)
+        assertEquals(0, click.policy.pending?.streak)
+    }
+
+    @Test
+    fun `effective actions never pause, however many`() {
+        val run = Run()
+        (0 until 50).forEach { i ->
+            val at = i * 800L
+            assertEquals("attempt $i", Decision.GO_HOME, run.seen(at, reelsTab).decision)
+            run.seen(at + 150, feed)
+        }
+        assertEquals(null, run.policy.pausedUntil)
+    }
+
+    @Test
+    fun `go home ineffective twice escalates to the launcher`() {
+        val run = Run()
+        assertEquals(Decision.GO_HOME, run.seen(0, reelsTab).decision)
+        assertEquals(Decision.NONE, run.seen(300, reelsTab).decision)
+        val second = run.seen(700, reelsTab)
+        assertEquals(Decision.GO_HOME, second.decision)
+        assertTrue(second.reason.contains("ineffective"))
+        assertEquals(Decision.GLOBAL_HOME, run.seen(1_400, reelsTab).decision)
+    }
+
+    @Test
+    fun `launcher failing three times in ten seconds pauses and says so`() {
+        val run = Run()
+        run.seen(0, reelsTab)
+        run.seen(700, reelsTab)
+        assertEquals(Decision.GLOBAL_HOME, run.seen(1_400, reelsTab).decision)
+        assertEquals(Decision.GLOBAL_HOME, run.seen(2_100, reelsTab).decision)
+        assertEquals(Decision.GLOBAL_HOME, run.seen(2_800, reelsTab).decision)
+        val broken = run.seen(3_500, reelsTab)
+        assertEquals(Decision.NONE, broken.decision)
+        assertTrue(broken.reason.contains("detection may be broken"))
+        assertEquals(13_500L, broken.retryAtMillis)
+        assertEquals(Decision.NONE, run.seen(10_000, reelsTab).decision)
+        val resumed = run.seen(13_500, reelsTab)
+        assertEquals(Decision.GO_HOME, resumed.decision)
+    }
+
+    @Test
+    fun `leaving instagram after the launcher counts as success`() {
+        val run = Run()
+        run.seen(0, reelsTab)
+        run.seen(700, reelsTab)
+        assertEquals(Decision.GLOBAL_HOME, run.seen(1_400, reelsTab).decision)
+        run.feed(PolicyInput.LeftApp(2_100))
+        val reopened = run.seen(5_000, reelsTab)
+        assertEquals(Decision.GO_HOME, reopened.decision)
+        assertEquals(0, reopened.policy.pending?.streak)
+    }
+
+    @Test
+    fun `snap back that does not take escalates to back then the launcher`() {
+        val run = Run()
+        run.seen(0, shared)
+        run.scroll(300, 4)
+        assertEquals(Decision.SNAP_BACK, run.scroll(3_000, 5).decision)
+        assertEquals(Decision.SNAP_BACK, run.seen(3_700, shared).decision)
+        assertEquals(Decision.BACK, run.seen(4_400, shared).decision)
+        assertEquals(Decision.BACK, run.seen(5_100, shared).decision)
+        assertEquals(Decision.GLOBAL_HOME, run.seen(5_800, shared).decision)
+    }
+
+    @Test
+    fun `snap back that takes resets the streak`() {
+        val run = Run()
+        run.seen(0, shared)
+        run.scroll(300, 4)
+        assertEquals(Decision.SNAP_BACK, run.scroll(3_000, 5).decision)
+        run.scroll(3_300, 4)
+        assertEquals(Decision.NONE, run.seen(3_800, shared).decision)
+        val again = run.scroll(6_000, 5)
+        assertEquals(Decision.SNAP_BACK, again.decision)
+        assertEquals(0, again.policy.pending?.streak)
+    }
+
+    @Test
+    fun `snap back seen working by a scan clears the pending action`() {
+        val run = Run()
+        run.seen(0, shared)
+        run.scroll(300, 4)
+        run.scroll(3_000, 5)
+        run.scroll(3_200, 4)
+        val check = run.seen(3_800, shared)
+        assertEquals(Decision.NONE, check.decision)
+        assertEquals(null, check.policy.pending)
+    }
+
+    @Test
+    fun `single reels off back on a shared reel escalates to the launcher`() {
+        val run = Run(PolicySettings(allowSingleReel = false))
+        assertEquals(Decision.BACK, run.seen(0, shared).decision)
+        assertEquals(Decision.BACK, run.seen(700, shared).decision)
+        assertEquals(Decision.GLOBAL_HOME, run.seen(1_400, shared).decision)
+    }
+
+    @Test
+    fun `unknown screen keeps the retry for a pending action`() {
+        val run = Run()
+        run.seen(0, reelsTab)
+        assertEquals(700L, run.seen(200, unknown).retryAtMillis)
+    }
+
+    @Test
+    fun `no retry is requested once the cooldown is over`() {
+        // A retry time in the past would make the service rescan in a busy loop.
+        val run = Run()
+        run.seen(0, reelsTab)
+        assertEquals(null, run.seen(900, unknown).retryAtMillis)
+        assertEquals(null, run.click(950, "feed_tab").retryAtMillis)
+    }
+
+    @Test
+    fun `go home landing on a single reel counts as done`() {
+        val run = Run()
+        run.seen(0, reelsTab)
+        val result = run.seen(800, single)
+        assertEquals(Decision.NONE, result.decision)
+        assertEquals(null, result.policy.pending)
     }
 }

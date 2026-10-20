@@ -7,6 +7,7 @@ import android.content.pm.PackageManager
 import android.os.Handler
 import android.os.Looper
 import android.os.SystemClock
+import android.util.Log
 import android.view.accessibility.AccessibilityEvent
 import android.view.accessibility.AccessibilityNodeInfo
 import android.widget.Toast
@@ -38,6 +39,7 @@ import kotlinx.coroutines.launch
 class InstaFocusService : AccessibilityService() {
     private val handler = Handler(Looper.getMainLooper())
     private val scanRunnable = Runnable { scan() }
+    private val retryRunnable = Runnable { scan() }
     private var scanPending = false
     private var scope: CoroutineScope? = null
 
@@ -45,6 +47,7 @@ class InstaFocusService : AccessibilityService() {
     private var policy = ReelPolicy()
     private var activity: String? = null
     private var lastLogged: Pair<String, String>? = null
+    private var lastScreen: String? = null
     private var lastToastAt = 0L
 
     override fun onServiceConnected() {
@@ -85,6 +88,7 @@ class InstaFocusService : AccessibilityService() {
 
     private fun shutdown() {
         handler.removeCallbacks(scanRunnable)
+        handler.removeCallbacks(retryRunnable)
         scanPending = false
         scope?.cancel()
         scope = null
@@ -102,6 +106,7 @@ class InstaFocusService : AccessibilityService() {
         }
         if (isActivity && className != activity) {
             activity = className
+            Log.d(TAG, "activity=$className")
             DebugLog.add(DebugEntry(System.currentTimeMillis(), "activity", className.substringAfterLast('.'), "-", "activity changed"))
         }
     }
@@ -109,7 +114,7 @@ class InstaFocusService : AccessibilityService() {
     private fun onClicked(event: AccessibilityEvent) {
         val viewId = withSource(event) { it.viewIdResourceName }
         val result = apply(PolicyInput.ViewClicked(now(), viewId))
-        log("click", viewId?.substringAfter(":id/") ?: "-", result)
+        log("click", "view=${viewId?.substringAfter(":id/") ?: "-"}", result)
         perform(result, pager = null)
     }
 
@@ -121,7 +126,8 @@ class InstaFocusService : AccessibilityService() {
                 // hash tells two pagers apart even though they share a resource id.
                 val key = "${event.windowId}:${source.hashCode()}"
                 val result = apply(PolicyInput.PagerScrolled(now(), key, event.fromIndex))
-                val details = "from=${event.fromIndex} to=${event.toIndex} count=${event.itemCount} pager=$key"
+                val details = "act=${activityName()} from=${event.fromIndex} to=${event.toIndex} " +
+                    "count=${event.itemCount} pager=$key"
                 log("pager scroll", details, result, always = true)
                 perform(result, pager = source)
             }
@@ -148,7 +154,10 @@ class InstaFocusService : AccessibilityService() {
             null
         } ?: return
         try {
-            if (root.packageName?.toString() != InstagramRules.PACKAGE) return
+            if (root.packageName?.toString() != InstagramRules.PACKAGE) {
+                log("scan", "outside Instagram", apply(PolicyInput.LeftApp(now())))
+                return
+            }
             val snapshot = NodeSnapshot.of(root) ?: return
             if (settings.debugCapture) DebugLog.setSnapshot(snapshot.onScreenIds())
             val classification = ScreenClassifier.classify(snapshot, activity)
@@ -163,7 +172,14 @@ class InstaFocusService : AccessibilityService() {
     private fun apply(input: PolicyInput): PolicyResult {
         val result = policy.reduce(input, PolicySettings(settings.blockingEnabled, settings.allowSingleReel))
         policy = result.policy
+        result.retryAtMillis?.let(::scheduleRetry)
         return result
+    }
+
+    /** One scan at [atMillis] (uptime) to judge or retry an action, even if Instagram sends no events. */
+    private fun scheduleRetry(atMillis: Long) {
+        handler.removeCallbacks(retryRunnable)
+        handler.postAtTime(retryRunnable, atMillis)
     }
 
     /** [pager] is the scroll event's source; only that pager may be scrolled back. */
@@ -173,6 +189,7 @@ class InstaFocusService : AccessibilityService() {
             Decision.GO_HOME -> clickHomeTab() || performGlobalAction(GLOBAL_ACTION_BACK)
             Decision.BACK -> performGlobalAction(GLOBAL_ACTION_BACK)
             Decision.SNAP_BACK -> scrollPager(pager, result.snapDirection) || performGlobalAction(GLOBAL_ACTION_BACK)
+            Decision.GLOBAL_HOME -> performGlobalAction(GLOBAL_ACTION_HOME)
         }
         if (!done) log("action", "-", result.copy(reason = "action failed: ${result.decision}"), always = true)
         showToast(if (result.decision == Decision.SNAP_BACK) R.string.toast_single_reel else R.string.toast_blocked)
@@ -223,8 +240,17 @@ class InstaFocusService : AccessibilityService() {
         null
     }
 
-    /** Logs actions and [always] entries, other results only when the screen or reason changes. */
+    /**
+     * Debug log: actions and [always] entries, other results only when the screen or reason
+     * changes. Logcat (tag [TAG], for adb diagnosis): every action and every screen change.
+     * Ids and indexes only, never node text or content descriptions.
+     */
     private fun log(eventType: String, screen: String, result: PolicyResult, always: Boolean = false) {
+        val screenChanged = eventType == "scan" && screen != lastScreen
+        if (eventType == "scan") lastScreen = screen
+        if (result.decision != Decision.NONE || screenChanged) {
+            Log.d(TAG, "$eventType $screen decision=${result.decision} reason=${result.reason}")
+        }
         val key = screen to result.reason
         if (!always && result.decision == Decision.NONE && key == lastLogged) return
         lastLogged = key
@@ -242,13 +268,18 @@ class InstaFocusService : AccessibilityService() {
         append(classification.screen.name)
         if (classification.sharedInDm) append(" shared")
         append(" tab=").append(classification.selectedTab ?: "none")
-        append(" act=").append(classification.activity?.substringAfterLast('.') ?: "unknown")
+        append(" tabBar=").append(if (classification.tabBarVisible) "visible" else "hidden")
+        append(" act=").append(activityName())
     }
+
+    private fun activityName(): String = activity?.substringAfterLast('.') ?: "unknown"
+
 
     private fun now(): Long = SystemClock.uptimeMillis()
 
     private companion object {
         const val SCAN_DELAY_MS: Long = 100
         const val TOAST_INTERVAL_MS: Long = 5_000
+        const val TAG: String = "InstaFocus"
     }
 }

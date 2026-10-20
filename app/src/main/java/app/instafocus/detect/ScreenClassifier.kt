@@ -29,6 +29,7 @@ object ScreenClassifier {
         return Classification(
             screen = screen,
             sharedInDm = screen == Screen.SINGLE_REEL && sharedSignal,
+            tabBarVisible = tabBar != null,
             selectedTab = selectedTab,
             activity = activity,
         )

@@ -114,9 +114,20 @@ Flow:
    - With "Allow single shared reel" off: **BACK** right away for a reel shared in a DM;
      for other reels it waits for the first swipe and then presses Back, because without
      a DM signal it cannot be sure enough that a reel is really in front.
-   - At most 3 actions in 5 s, 700 ms apart; after that it pauses for 10 s and logs it,
-     so an Instagram change can never cause an endless Back loop.
+   - Every attempt is blocked, however often you retry. Actions are at least 700 ms
+     apart; a decision held back by that cooldown is retried with a scan at its end, so a
+     fast re-tap cannot slip through.
+   - Escalation instead of giving up: an action is *ineffective* when the first scan after
+     the cooldown still shows the same blocked screen. Each rung is tried twice:
+     Reels tab: tap Home tab, then the launcher (`GLOBAL_ACTION_HOME`). Single reel:
+     snap back, then Back, then the launcher. Leaving to any other screen resets it.
+   - Only if the launcher itself fails 3 times in 10 s (so detection is probably broken)
+     does it pause for 10 s and log "detection may be broken". Effective actions never
+     cause a pause.
    - It never acts on DM or other screens.
+   - For adb diagnosis, every action and screen change is logged to logcat with tag
+     `InstaFocus` (`adb logcat -s InstaFocus`): activity, screen, selected tab, tab bar
+     visibility, pager indexes, decision and reason. Ids and indexes only, never text.
 
 ## Updating InstagramRules after an Instagram update
 

@@ -11,6 +11,9 @@ enum class Decision {
 
     /** Scroll the reel pager back to the reel the user opened. */
     SNAP_BACK,
+
+    /** Go to the launcher: the last resort when gentler actions did not leave the reel. */
+    GLOBAL_HOME,
 }
 
 enum class SnapDirection { BACKWARD, FORWARD }
@@ -34,6 +37,9 @@ sealed interface PolicyInput {
      * (an Explore reel in front of the Reels tab), and only the one in front scrolls.
      */
     data class PagerScrolled(override val atMillis: Long, val pagerKey: String, val fromIndex: Int) : PolicyInput
+
+    /** The active window is no longer Instagram (for example after [Decision.GLOBAL_HOME]). */
+    data class LeftApp(override val atMillis: Long) : PolicyInput
 }
 
 data class PolicyResult(
@@ -41,4 +47,6 @@ data class PolicyResult(
     val decision: Decision,
     val reason: String,
     val snapDirection: SnapDirection? = null,
+    /** When set, the service must scan again at this time: to judge an action, or to retry one held back. */
+    val retryAtMillis: Long? = null,
 )
