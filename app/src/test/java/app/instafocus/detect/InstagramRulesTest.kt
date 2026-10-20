@@ -33,6 +33,8 @@ class InstagramRulesTest {
         assertTrue(InstagramRules.isActivity(MODAL, InstagramRules.MODAL_ACTIVITY))
         assertTrue(InstagramRules.isActivity("x.y.TransparentModalActivity", InstagramRules.MODAL_ACTIVITY))
         assertFalse(InstagramRules.isActivity(MAIN_TAB, InstagramRules.MODAL_ACTIVITY))
+        assertFalse(InstagramRules.isActivity(INSTAGRAM_MAIN, InstagramRules.MODAL_ACTIVITY))
+        assertTrue(INSTAGRAM_MAIN in InstagramRules.mainActivities)
         assertFalse(InstagramRules.isActivity(null, InstagramRules.MODAL_ACTIVITY))
     }
 }

@@ -23,8 +23,11 @@ class ScreenClassifierTest {
     }
 
     @Test
-    fun `reels tab selected flag inside another activity is not the reels tab`() {
-        assertEquals(Screen.OTHER, classify(MODAL, tabBar(selected = "clips_tab")).screen)
+    fun `reels tab is detected in any activity`() {
+        // Window-state events name InstagramMainActivity, not MainTabActivity.
+        listOf(INSTAGRAM_MAIN, MODAL, "com.instagram.SomeFutureActivity").forEach { activity ->
+            assertEquals(activity, Screen.REELS_TAB, classify(activity, reelViewer(), tabBar(selected = "clips_tab")).screen)
+        }
     }
 
     @Test

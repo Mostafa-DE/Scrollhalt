@@ -4,6 +4,7 @@ val SCREEN: Bounds = Bounds(0, 0, 1080, 2400)
 private val SMALL: Bounds = Bounds(0, 2200, 200, 2400)
 
 const val MAIN_TAB: String = "com.instagram.android.activity.MainTabActivity"
+const val INSTAGRAM_MAIN: String = "com.instagram.mainactivity.InstagramMainActivity"
 const val MODAL: String = "com.instagram.modal.TransparentModalActivity"
 
 data class FakeNode(

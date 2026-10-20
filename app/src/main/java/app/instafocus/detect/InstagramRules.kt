@@ -10,10 +10,18 @@ object InstagramRules {
     const val PACKAGE: String = "com.instagram.android"
     private const val ID_SEPARATOR: String = ":id/"
 
-    /** Activity hosting the bottom tabs, and the Reels tab, Explore and feed-opened reels. */
-    const val MAIN_TAB_ACTIVITY: String = "com.instagram.android.activity.MainTabActivity"
+    /**
+     * Activities hosting the bottom tabs, the Reels tab and Explore/feed-opened reels.
+     * dumpsys shows MainTabActivity resumed, but window-state events name
+     * InstagramMainActivity. Reference only: no decision depends on them, so a renamed
+     * main activity cannot silently disable blocking.
+     */
+    val mainActivities: List<String> = listOf(
+        "com.instagram.android.activity.MainTabActivity",
+        "com.instagram.mainactivity.InstagramMainActivity",
+    )
 
-    /** Activity a reel shared in a DM opens in. */
+    /** Activity a reel shared in a DM opens in; the only activity used as a signal. */
     const val MODAL_ACTIVITY: String = "com.instagram.modal.TransparentModalActivity"
 
     /**

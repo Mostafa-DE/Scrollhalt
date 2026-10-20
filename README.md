@@ -80,9 +80,10 @@ DM threads. So the reel tree being present proves nothing. InstaFocus instead us
 
 - the bottom **`tab_bar`**: on screen on tab roots, gone inside threads, viewers and modals;
 - which tab is **selected** (`feed_tab`, `clips_tab`, `direct_tab`, `search_tab`, `profile_tab`);
-- the current **activity** from window-state events: the tabs, the Reels tab and
-  Explore/feed-opened reels live in `MainTabActivity`; a reel shared in a DM opens in
-  `TransparentModalActivity`;
+- the current **activity** from window-state events, only as a positive signal: a reel
+  shared in a DM opens in `TransparentModalActivity`. The main screens report
+  `InstagramMainActivity` in events (dumpsys shows `MainTabActivity`), so nothing else
+  depends on the activity name;
 - **DM markers** (`direct_thread_header`, `row_thread_composer_edittext`, ...) and
   **shared-reel markers** (`clips_sent_by`, `reel_viewer_message_composer`,
   `reply_bar_container_scroll_view`, `sender_username_or_fullname`; ids only, their text
@@ -96,8 +97,7 @@ Flow:
    (at most one every 100 ms; nothing runs while idle). The scan copies the on-screen
    part of the view tree (`service/NodeSnapshot`).
 2. `ScreenClassifier` names the screen:
-   - **REELS_TAB**: `tab_bar` on screen and `clips_tab` selected, in `MainTabActivity`
-     (or an unknown activity).
+   - **REELS_TAB**: `tab_bar` on screen and `clips_tab` selected, in any activity.
    - **SINGLE_REEL**: a reel pager and reel controls on screen, no `tab_bar`, and
      `clips_tab` not selected. Marked *shared in DM* when the activity is
      `TransparentModalActivity` or a shared-reel marker is on screen. Covers DM reels and

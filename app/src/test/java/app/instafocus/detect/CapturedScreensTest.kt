@@ -18,6 +18,12 @@ class CapturedScreensTest {
     }
 
     @Test
+    fun `instagram main activity with reels tab selected goes home`() {
+        // Captured on 451 via logcat: window-state className is InstagramMainActivity.
+        assertEquals(Decision.GO_HOME, decide(PolicySettings(), INSTAGRAM_MAIN, reelViewer(), tabBar(selected = "clips_tab")))
+    }
+
+    @Test
     fun `dm thread with the reels tree behind it is left alone`() {
         both.forEach { assertEquals(Decision.NONE, decide(it, MAIN_TAB, reelViewer(), dmThread())) }
     }
