@@ -71,36 +71,61 @@ minSdk 28.
 ## How detection works
 
 Everything that decides what to do lives in `app/src/main/java/app/instafocus/detect/`,
-which is plain Kotlin (no Android imports) and unit tested.
+which is plain Kotlin (no Android imports) and unit tested. The signals below were
+confirmed on Instagram 451.0.0.53.80.
 
-1. On each window change, content change, scroll and click from Instagram, the
-   service schedules a scan (at most one every 100 ms; nothing runs while idle).
-2. The scan copies the **on-screen** part of Instagram's view tree
-   (`service/NodeSnapshot`). Instagram keeps every tab loaded at once, so only
-   nodes that are visible to the user and have a non-empty area count.
-3. `ScreenClassifier` names the screen:
-   - **REEL_VIEWER**: a reel pager (`clips_viewer_view_pager`, `clips_view_pager`)
-     and at least one reel control (`clips_ufi_component`, `clips_author_username`, ...).
-   - **UNKNOWN**: a pager without reel controls. Never acted on.
-   - **DM**, **EXPLORE**, **OTHER** by their marker ids.
-   - It also reports whether the Reels tab (`clips_tab`) is visible and selected.
-4. `ReelPolicy`, an immutable state machine, turns that into a decision:
-   - Viewer and (Reels tab selected, or Reels tab clicked in the last 2 s):
-     **GO_HOME** (taps `feed_tab`; Back from Instagram's root would close the app).
-   - Viewer opened from a DM, Explore or other screen: allow it, remember the
-     pager index seen in the first 1.2 s, and **SNAP_BACK** (scroll the pager back,
-     or Back if that fails) when a later scroll shows a different index. With
-     "Allow single shared reel" off: **BACK**.
-   - At most 3 actions in 5 s, 700 ms apart; after that it pauses for 10 s and
-     logs it, so an Instagram change can never cause an endless Back loop.
-   - It never acts on DM, Explore or other screens.
+The key fact: Instagram keeps the Reels tab (its `clips_viewer_view_pager`, controls
+and video, flagged visible and full screen) alive behind every other screen, including
+DM threads. So the reel tree being present proves nothing. InstaFocus instead uses:
+
+- the bottom **`tab_bar`**: on screen on tab roots, gone inside threads, viewers and modals;
+- which tab is **selected** (`feed_tab`, `clips_tab`, `direct_tab`, `search_tab`, `profile_tab`);
+- the current **activity** from window-state events: the tabs, the Reels tab and
+  Explore/feed-opened reels live in `MainTabActivity`; a reel shared in a DM opens in
+  `TransparentModalActivity`;
+- **DM markers** (`direct_thread_header`, `row_thread_composer_edittext`, ...) and
+  **shared-reel markers** (`clips_sent_by`, `reel_viewer_message_composer`,
+  `reply_bar_container_scroll_view`, `sender_username_or_fullname`; ids only, their text
+  is never read);
+- **scroll events from the reel pager** (ViewPager2 reports the current page as
+  `fromIndex`, and only the pager in front scrolls).
+
+Flow:
+
+1. Window changes, content changes, scrolls and clicks from Instagram schedule a scan
+   (at most one every 100 ms; nothing runs while idle). The scan copies the on-screen
+   part of the view tree (`service/NodeSnapshot`).
+2. `ScreenClassifier` names the screen:
+   - **REELS_TAB**: `tab_bar` on screen and `clips_tab` selected, in `MainTabActivity`
+     (or an unknown activity).
+   - **SINGLE_REEL**: a reel pager and reel controls on screen, no `tab_bar`, and
+     `clips_tab` not selected. Marked *shared in DM* when the activity is
+     `TransparentModalActivity` or a shared-reel marker is on screen. Covers DM reels and
+     reels opened from Explore, the feed or a profile.
+   - **DM**: a DM marker on screen (checked before the non-DM single-reel case, so a DM
+     thread with the Reels tree behind it is never treated as a reel).
+   - **UNKNOWN** (pager without controls) and **OTHER**: never acted on.
+3. `ReelPolicy`, an immutable state machine, turns that into a decision:
+   - REELS_TAB, or a click on `clips_tab`: **GO_HOME** (taps `feed_tab`; Back from
+     Instagram's root would close the app).
+   - SINGLE_REEL: allow it and remember the start page from pager scroll events in the
+     first 1.2 s, tracked per pager (two pagers can exist at once). A later scroll of that
+     pager to another page: **SNAP_BACK** (scroll the same pager back; Back if that fails).
+   - With "Allow single shared reel" off: **BACK** right away for a reel shared in a DM;
+     for other reels it waits for the first swipe and then presses Back, because without
+     a DM signal it cannot be sure enough that a reel is really in front.
+   - At most 3 actions in 5 s, 700 ms apart; after that it pauses for 10 s and logs it,
+     so an Instagram change can never cause an endless Back loop.
+   - It never acts on DM or other screens.
 
 ## Updating InstagramRules after an Instagram update
 
 All Instagram view ids are in one file:
 `app/src/main/java/app/instafocus/detect/InstagramRules.kt`.
 
-1. In InstaFocus open **Debug log** and switch on **Capture visible view ids**.
+1. In InstaFocus open **Debug log** and switch on **Capture visible view ids**. The log
+   also shows, for every scan, the screen, the selected tab and the activity, and for
+   every pager scroll its `fromIndex`, `toIndex`, `itemCount` and which pager it was.
 2. Open Instagram on the screen that is misdetected (for example the Reels tab),
    return to InstaFocus and tap **Copy snapshot**. The clipboard now holds the ids of
    the views that were on screen. It contains no text, usernames or messages.
@@ -115,15 +140,21 @@ memory only and are gone when the app process ends.
 ## Known limitations
 
 - It depends on Instagram's internal view ids. An Instagram update can rename them
-  and break detection until `InstagramRules` is updated. The current ids come from
-  reference projects and have not yet been checked against Instagram 451.0.0.53.80
-  on a device.
+  and break detection until `InstagramRules` is updated. The ids and activities were
+  captured from Instagram 451.0.0.53.80; feed- and profile-opened reels are assumed to
+  behave like Explore-opened ones (not captured yet).
 - It reacts after the reel viewer appears, so a frame or two of a reel may show
   before it leaves.
-- Telling "opened from a DM / Explore / feed" apart from "Reels tab" is heuristic:
-  it uses the last screen seen before the viewer and the Reels tab selection state.
+- Telling a single reel apart from the Reels tab relies on the tab bar and the
+  selected tab. Another full-screen surface without a tab bar (for example stories)
+  sits in front of the kept-alive Reels pager too; it is treated as a single reel, which
+  is harmless because nothing happens until that pager scrolls.
+- With "Allow single shared reel" off, reels opened from Explore, the feed or a profile
+  play until the first swipe, then close.
 - Snap-back relies on the pager reporting page indexes in scroll events. If
   Instagram stops doing that, swiping to the next reel will not be caught.
+- The app declares package visibility for Instagram (a `<queries>` entry, not a
+  permission) so it can tell activities from dialogs in window events.
 - When it is unsure, it does nothing; it prefers missing a reel over blocking a chat.
 - Samsung (and Android after app updates) may turn the service off. Re-enable it
   and check "Never sleeping apps".

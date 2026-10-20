@@ -1,25 +1,28 @@
 package app.instafocus.detect
 
 enum class Screen {
-    /** Full-screen reel pager with its reel controls on screen. */
-    REEL_VIEWER,
+    /** The Reels tab: tab bar on screen with the Reels tab selected. */
+    REELS_TAB,
 
-    /** Direct messages inbox or thread. */
+    /** A single reel opened from a DM, Explore, the feed or a profile: pager on screen, no tab bar. */
+    SINGLE_REEL,
+
+    /** DM thread or inbox. Never acted on. */
     DM,
 
-    /** Explore grid or search. */
-    EXPLORE,
-
-    /** Anything else inside Instagram: feed, profile, stories, settings. */
+    /** Anything else: feed, profile, Explore grid, stories, settings. */
     OTHER,
 
-    /** The reel pager is on screen but its controls are not; not confident either way. */
+    /** A reel pager without a tab bar but also without reel controls; not confident either way. */
     UNKNOWN,
 }
 
 data class Classification(
     val screen: Screen,
-    val reelsTabSelected: Boolean,
-    /** A DM marker (e.g. the reply bar) is on screen together with the reel viewer. */
-    val dmOverlay: Boolean = false,
+    /** For [Screen.SINGLE_REEL]: the reel was shared in a DM (modal activity or sender markers). */
+    val sharedInDm: Boolean = false,
+    /** Name of the selected bottom tab that is on screen, if any (for the debug log). */
+    val selectedTab: String? = null,
+    /** Current Instagram activity class, if known (for the debug log). */
+    val activity: String? = null,
 )

@@ -1,7 +1,9 @@
 package app.instafocus.service
 
 import android.accessibilityservice.AccessibilityService
+import android.content.ComponentName
 import android.content.Intent
+import android.content.pm.PackageManager
 import android.os.Handler
 import android.os.Looper
 import android.os.SystemClock
@@ -41,6 +43,7 @@ class InstaFocusService : AccessibilityService() {
 
     private var settings = AppSettings()
     private var policy = ReelPolicy()
+    private var activity: String? = null
     private var lastLogged: Pair<String, String>? = null
     private var lastToastAt = 0L
 
@@ -57,10 +60,12 @@ class InstaFocusService : AccessibilityService() {
     override fun onAccessibilityEvent(event: AccessibilityEvent) {
         if (event.packageName?.toString() != InstagramRules.PACKAGE) return
         when (event.eventType) {
-            AccessibilityEvent.TYPE_VIEW_CLICKED ->
-                apply(PolicyInput.ViewClicked(now(), sourceViewId(event)), "click")
+            AccessibilityEvent.TYPE_VIEW_CLICKED -> onClicked(event)
             AccessibilityEvent.TYPE_VIEW_SCROLLED -> onScrolled(event)
-            AccessibilityEvent.TYPE_WINDOW_STATE_CHANGED,
+            AccessibilityEvent.TYPE_WINDOW_STATE_CHANGED -> {
+                trackActivity(event.className?.toString())
+                scheduleScan()
+            }
             AccessibilityEvent.TYPE_WINDOW_CONTENT_CHANGED -> scheduleScan()
             else -> Unit
         }
@@ -86,10 +91,40 @@ class InstaFocusService : AccessibilityService() {
         ServiceState.setConnected(false)
     }
 
+    /** Window-state events also fire for dialogs and popups; only real activities count. */
+    private fun trackActivity(className: String?) {
+        if (className == null) return
+        val isActivity = try {
+            packageManager.getActivityInfo(ComponentName(InstagramRules.PACKAGE, className), 0)
+            true
+        } catch (_: PackageManager.NameNotFoundException) {
+            false
+        }
+        if (isActivity && className != activity) {
+            activity = className
+            DebugLog.add(DebugEntry(System.currentTimeMillis(), "activity", className.substringAfterLast('.'), "-", "activity changed"))
+        }
+    }
+
+    private fun onClicked(event: AccessibilityEvent) {
+        val viewId = withSource(event) { it.viewIdResourceName }
+        val result = apply(PolicyInput.ViewClicked(now(), viewId))
+        log("click", viewId?.substringAfter(":id/") ?: "-", result)
+        perform(result, pager = null)
+    }
+
     private fun onScrolled(event: AccessibilityEvent) {
-        val viewId = sourceViewId(event)
-        if (InstagramRules.reelViewerIds.any { InstagramRules.matches(viewId, it) }) {
-            apply(PolicyInput.PagerScrolled(now(), event.fromIndex), "pager scroll")
+        withSource(event) { source ->
+            val viewId = source.viewIdResourceName
+            if (InstagramRules.reelViewerIds.any { InstagramRules.matches(viewId, it) }) {
+                // AccessibilityNodeInfo equality is view identity (window + view id), so its
+                // hash tells two pagers apart even though they share a resource id.
+                val key = "${event.windowId}:${source.hashCode()}"
+                val result = apply(PolicyInput.PagerScrolled(now(), key, event.fromIndex))
+                val details = "from=${event.fromIndex} to=${event.toIndex} count=${event.itemCount} pager=$key"
+                log("pager scroll", details, result, always = true)
+                perform(result, pager = source)
+            }
         }
         scheduleScan()
     }
@@ -116,59 +151,46 @@ class InstaFocusService : AccessibilityService() {
             if (root.packageName?.toString() != InstagramRules.PACKAGE) return
             val snapshot = NodeSnapshot.of(root) ?: return
             if (settings.debugCapture) DebugLog.setSnapshot(snapshot.onScreenIds())
-            apply(PolicyInput.ScreenSeen(now(), ScreenClassifier.classify(snapshot)), "scan")
+            val classification = ScreenClassifier.classify(snapshot, activity)
+            val result = apply(PolicyInput.ScreenSeen(now(), classification))
+            log("scan", describe(classification), result)
+            perform(result, pager = null)
         } finally {
             root.release()
         }
     }
 
-    private fun apply(input: PolicyInput, eventType: String) {
-        val policySettings = PolicySettings(settings.blockingEnabled, settings.allowSingleReel)
-        val result = policy.reduce(input, policySettings)
+    private fun apply(input: PolicyInput): PolicyResult {
+        val result = policy.reduce(input, PolicySettings(settings.blockingEnabled, settings.allowSingleReel))
         policy = result.policy
-        val screen = (input as? PolicyInput.ScreenSeen)?.classification?.let(::describe) ?: "-"
-        log(eventType, screen, result)
-        perform(result)
+        return result
     }
 
-    private fun perform(result: PolicyResult) {
+    /** [pager] is the scroll event's source; only that pager may be scrolled back. */
+    private fun perform(result: PolicyResult, pager: AccessibilityNodeInfo?) {
         val done = when (result.decision) {
             Decision.NONE -> return
             Decision.GO_HOME -> clickHomeTab() || performGlobalAction(GLOBAL_ACTION_BACK)
             Decision.BACK -> performGlobalAction(GLOBAL_ACTION_BACK)
-            Decision.SNAP_BACK -> scrollPager(result.snapDirection) || performGlobalAction(GLOBAL_ACTION_BACK)
+            Decision.SNAP_BACK -> scrollPager(pager, result.snapDirection) || performGlobalAction(GLOBAL_ACTION_BACK)
         }
-        if (!done) log("action", "-", result.copy(reason = "action failed: ${result.decision}"))
+        if (!done) log("action", "-", result.copy(reason = "action failed: ${result.decision}"), always = true)
         showToast(if (result.decision == Decision.SNAP_BACK) R.string.toast_single_reel else R.string.toast_blocked)
     }
 
-    private fun clickHomeTab(): Boolean =
-        withNode(listOf(InstagramRules.HOME_TAB_ID)) { it.performAction(AccessibilityNodeInfo.ACTION_CLICK) }
-
-    private fun scrollPager(direction: SnapDirection?): Boolean {
-        val action = when (direction) {
-            SnapDirection.FORWARD -> AccessibilityNodeInfo.ACTION_SCROLL_FORWARD
-            SnapDirection.BACKWARD, null -> AccessibilityNodeInfo.ACTION_SCROLL_BACKWARD
-        }
-        return withNode(InstagramRules.reelViewerIds) { it.performAction(action) }
-    }
-
-    /** Runs [block] on the first visible live node with one of [names]; false if none or stale. */
-    private fun withNode(names: List<String>, block: (AccessibilityNodeInfo) -> Boolean): Boolean {
+    private fun clickHomeTab(): Boolean {
         val root = try {
             rootInActiveWindow
         } catch (_: RuntimeException) {
             null
         } ?: return false
         return try {
-            names.firstNotNullOfOrNull { name ->
-                val nodes = root.findAccessibilityNodeInfosByViewId(InstagramRules.fullId(name))
-                try {
-                    nodes.firstOrNull { it.isVisibleToUser }?.let(block)
-                } finally {
-                    nodes.forEach { it.release() }
-                }
-            } ?: false
+            val nodes = root.findAccessibilityNodeInfosByViewId(InstagramRules.fullId(InstagramRules.HOME_TAB_ID))
+            try {
+                nodes.firstOrNull { it.isVisibleToUser }?.performAction(AccessibilityNodeInfo.ACTION_CLICK) ?: false
+            } finally {
+                nodes.forEach { it.release() }
+            }
         } catch (_: RuntimeException) {
             false
         } finally {
@@ -176,10 +198,23 @@ class InstaFocusService : AccessibilityService() {
         }
     }
 
-    private fun sourceViewId(event: AccessibilityEvent): String? = try {
+    private fun scrollPager(pager: AccessibilityNodeInfo?, direction: SnapDirection?): Boolean {
+        val action = when (direction) {
+            SnapDirection.FORWARD -> AccessibilityNodeInfo.ACTION_SCROLL_FORWARD
+            SnapDirection.BACKWARD, null -> AccessibilityNodeInfo.ACTION_SCROLL_BACKWARD
+        }
+        return try {
+            pager?.performAction(action) ?: false
+        } catch (_: RuntimeException) {
+            false
+        }
+    }
+
+    /** Runs [block] on the event's source node and releases it; null if there is none or it is stale. */
+    private fun <T> withSource(event: AccessibilityEvent, block: (AccessibilityNodeInfo) -> T): T? = try {
         event.source?.let { source ->
             try {
-                source.viewIdResourceName
+                block(source)
             } finally {
                 source.release()
             }
@@ -188,10 +223,10 @@ class InstaFocusService : AccessibilityService() {
         null
     }
 
-    /** Logs actions always, and other results only when the screen or reason changes. */
-    private fun log(eventType: String, screen: String, result: PolicyResult) {
+    /** Logs actions and [always] entries, other results only when the screen or reason changes. */
+    private fun log(eventType: String, screen: String, result: PolicyResult, always: Boolean = false) {
         val key = screen to result.reason
-        if (result.decision == Decision.NONE && key == lastLogged) return
+        if (!always && result.decision == Decision.NONE && key == lastLogged) return
         lastLogged = key
         DebugLog.add(DebugEntry(System.currentTimeMillis(), eventType, screen, result.decision.name, result.reason))
     }
@@ -205,8 +240,9 @@ class InstaFocusService : AccessibilityService() {
 
     private fun describe(classification: Classification): String = buildString {
         append(classification.screen.name)
-        if (classification.reelsTabSelected) append(" +reelsTab")
-        if (classification.dmOverlay) append(" +dm")
+        if (classification.sharedInDm) append(" shared")
+        append(" tab=").append(classification.selectedTab ?: "none")
+        append(" act=").append(classification.activity?.substringAfterLast('.') ?: "unknown")
     }
 
     private fun now(): Long = SystemClock.uptimeMillis()

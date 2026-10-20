@@ -1,5 +1,6 @@
 package app.instafocus.detect
 
+import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Test
@@ -24,6 +25,14 @@ class InstagramRulesTest {
 
     @Test
     fun `full id adds the package prefix`() {
-        assertTrue(InstagramRules.fullId("feed_tab") == "com.instagram.android:id/feed_tab")
+        assertEquals("com.instagram.android:id/feed_tab", InstagramRules.fullId("feed_tab"))
+    }
+
+    @Test
+    fun `activity matches by full or simple name`() {
+        assertTrue(InstagramRules.isActivity(MODAL, InstagramRules.MODAL_ACTIVITY))
+        assertTrue(InstagramRules.isActivity("x.y.TransparentModalActivity", InstagramRules.MODAL_ACTIVITY))
+        assertFalse(InstagramRules.isActivity(MAIN_TAB, InstagramRules.MODAL_ACTIVITY))
+        assertFalse(InstagramRules.isActivity(null, InstagramRules.MODAL_ACTIVITY))
     }
 }

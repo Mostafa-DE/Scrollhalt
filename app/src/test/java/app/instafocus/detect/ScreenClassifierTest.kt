@@ -2,87 +2,112 @@ package app.instafocus.detect
 
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
+import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class ScreenClassifierTest {
-    private fun classify(vararg children: UiNode): Classification = ScreenClassifier.classify(root(*children))
+    private fun classify(activity: String?, vararg children: UiNode): Classification =
+        ScreenClassifier.classify(root(*children), activity)
 
     @Test
-    fun `visible viewer with reel controls is a reel viewer`() {
-        val result = classify(reelViewer())
-        assertEquals(Screen.REEL_VIEWER, result.screen)
-        assertFalse(result.reelsTabSelected)
+    fun `reels tab selected with tab bar on screen is the reels tab`() {
+        val result = classify(MAIN_TAB, reelViewer(), tabBar(selected = "clips_tab"))
+        assertEquals(Screen.REELS_TAB, result.screen)
+        assertEquals("clips_tab", result.selectedTab)
     }
 
     @Test
-    fun `alternate pager id is a reel viewer`() {
-        assertEquals(Screen.REEL_VIEWER, classify(reelViewer(pagerName = "clips_view_pager")).screen)
+    fun `reels tab with unknown activity is the reels tab`() {
+        assertEquals(Screen.REELS_TAB, classify(null, reelViewer(), tabBar(selected = "clips_tab")).screen)
     }
 
     @Test
-    fun `viewer present but not visible is not a reel viewer`() {
-        // New Instagram layout keeps the Reels tab loaded behind the feed.
-        val result = classify(feed(), reelViewer(viewerVisible = false), tabBar())
+    fun `reels tab selected flag inside another activity is not the reels tab`() {
+        assertEquals(Screen.OTHER, classify(MODAL, tabBar(selected = "clips_tab")).screen)
+    }
+
+    @Test
+    fun `hidden tab bar with reels selected is not the reels tab`() {
+        val result = classify(MAIN_TAB, feed(), tabBar(selected = "clips_tab", visible = false))
         assertEquals(Screen.OTHER, result.screen)
+        assertNull(result.selectedTab)
     }
 
     @Test
-    fun `viewer with empty bounds is not on screen`() {
-        val hidden = FakeNode(
-            ig("clips_viewer_view_pager"), bounds = Bounds(0, 0, 0, 0),
-            children = listOf(node("clips_ufi_component", bounds = Bounds(0, 0, 0, 0))),
+    fun `feed with the reels tree alive behind it is other`() {
+        val result = classify(MAIN_TAB, reelViewer(), feed(), tabBar(selected = "feed_tab"))
+        assertEquals(Screen.OTHER, result.screen)
+        assertEquals("feed_tab", result.selectedTab)
+    }
+
+    @Test
+    fun `dm inbox with the reels tree behind it is a dm`() {
+        assertEquals(Screen.DM, classify(MAIN_TAB, reelViewer(), dmInbox(), tabBar(selected = "direct_tab")).screen)
+    }
+
+    @Test
+    fun `dm thread with the reels tree behind it and no tab bar is a dm`() {
+        // Captured on 451: inside a thread tab_bar is gone and the Reels viewer stays "visible" behind.
+        val result = classify(MAIN_TAB, reelViewer(), dmThread())
+        assertEquals(Screen.DM, result.screen)
+        assertFalse(result.sharedInDm)
+    }
+
+    @Test
+    fun `reel shared in a dm opens in the modal activity`() {
+        val result = classify(MODAL, sharedReelViewer())
+        assertEquals(Screen.SINGLE_REEL, result.screen)
+        assertTrue(result.sharedInDm)
+        assertEquals(MODAL, result.activity)
+    }
+
+    @Test
+    fun `sender markers alone mark a shared reel`() {
+        assertTrue(classify(null, sharedReelViewer()).sharedInDm)
+    }
+
+    @Test
+    fun `modal activity alone marks a shared reel`() {
+        val result = classify(MODAL, reelViewer())
+        assertEquals(Screen.SINGLE_REEL, result.screen)
+        assertTrue(result.sharedInDm)
+    }
+
+    @Test
+    fun `explore reel in front of the reels tab pager is a single reel`() {
+        // Captured on 451: two pagers, tab bar gone, search_tab selected but hidden.
+        val result = classify(
+            MAIN_TAB,
+            reelViewer(bounds = Bounds(0, 0, 1080, 2186)),
+            reelViewer(bounds = Bounds(0, 0, 1080, 2017), withUi = true, pagerName = "clips_viewer_view_pager", node("comment_composer_inner_layout")),
+            tabBar(selected = "search_tab", visible = false),
         )
-        assertEquals(Screen.OTHER, classify(hidden).screen)
+        assertEquals(Screen.SINGLE_REEL, result.screen)
+        assertFalse(result.sharedInDm)
     }
 
     @Test
-    fun `viewer without reel controls is unknown`() {
-        assertEquals(Screen.UNKNOWN, classify(reelViewer(withUi = false)).screen)
+    fun `alternate pager id is recognised`() {
+        assertEquals(Screen.SINGLE_REEL, classify(MAIN_TAB, reelViewer(pagerName = "clips_view_pager")).screen)
     }
 
     @Test
-    fun `reels tab selected and visible is reported`() {
-        val result = classify(reelViewer(), tabBar(reelsSelected = true))
-        assertEquals(Screen.REEL_VIEWER, result.screen)
-        assertTrue(result.reelsTabSelected)
+    fun `pager not visible is other`() {
+        val hidden = node("clips_viewer_view_pager", visible = false, bounds = SCREEN, children = arrayOf(node("clips_ufi_component", visible = false)))
+        assertEquals(Screen.OTHER, classify(MAIN_TAB, hidden).screen)
     }
 
     @Test
-    fun `selected reels tab that is not visible is ignored`() {
-        assertFalse(classify(feed(), tabBar(reelsSelected = true, visible = false)).reelsTabSelected)
+    fun `pager with empty bounds is other`() {
+        val empty = Bounds(0, 0, 0, 0)
+        val hidden = node("clips_viewer_view_pager", bounds = empty, children = arrayOf(node("clips_ufi_component", bounds = empty)))
+        assertEquals(Screen.OTHER, classify(MAIN_TAB, hidden).screen)
     }
 
     @Test
-    fun `dm thread is a dm`() {
-        assertEquals(Screen.DM, classify(dmThread()).screen)
-    }
-
-    @Test
-    fun `dm inbox is a dm`() {
-        assertEquals(Screen.DM, classify(node("direct_inbox_recycler_view", bounds = SCREEN)).screen)
-    }
-
-    @Test
-    fun `hidden dm markers do not count`() {
-        assertEquals(Screen.OTHER, classify(feed(), node("direct_thread_toolbar", visible = false)).screen)
-    }
-
-    @Test
-    fun `explore search bar is explore`() {
-        assertEquals(Screen.EXPLORE, classify(exploreGrid(), tabBar()).screen)
-    }
-
-    @Test
-    fun `feed is other`() {
-        assertEquals(Screen.OTHER, classify(feed(), tabBar()).screen)
-    }
-
-    @Test
-    fun `reply bar over the viewer marks a dm overlay`() {
-        val result = classify(reelViewer(), node("reply_bar_container_scroll_view"))
-        assertEquals(Screen.REEL_VIEWER, result.screen)
-        assertTrue(result.dmOverlay)
+    fun `pager without reel controls is unknown`() {
+        assertEquals(Screen.UNKNOWN, classify(MAIN_TAB, reelViewer(withUi = false)).screen)
     }
 
     @Test

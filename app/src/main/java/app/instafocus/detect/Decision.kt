@@ -28,8 +28,12 @@ sealed interface PolicyInput {
 
     data class ViewClicked(override val atMillis: Long, val viewId: String?) : PolicyInput
 
-    /** A scroll event whose source is the reel pager; [fromIndex] is the first visible page. */
-    data class PagerScrolled(override val atMillis: Long, val fromIndex: Int) : PolicyInput
+    /**
+     * A scroll event whose source is a reel pager. ViewPager2 reports the current page as
+     * [fromIndex]. [pagerKey] identifies the source view: two pagers can exist at once
+     * (an Explore reel in front of the Reels tab), and only the one in front scrolls.
+     */
+    data class PagerScrolled(override val atMillis: Long, val pagerKey: String, val fromIndex: Int) : PolicyInput
 }
 
 data class PolicyResult(
