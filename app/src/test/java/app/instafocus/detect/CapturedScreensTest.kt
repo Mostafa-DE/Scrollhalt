@@ -24,6 +24,20 @@ class CapturedScreensTest {
     }
 
     @Test
+    fun `device accessibility tree on the reels tab goes home`() {
+        // As dumped on the phone: tab buttons under the root, clips_tab selected after the tap.
+        assertEquals(Decision.GO_HOME, decide(PolicySettings(), INSTAGRAM_MAIN, reelViewer(), *tabButtons(selected = "clips_tab")))
+    }
+
+    @Test
+    fun `device accessibility tree on the feed is left alone`() {
+        both.forEach {
+            assertEquals(Decision.NONE, decide(it, INSTAGRAM_MAIN, feed(), offscreenReelsPage(), *tabButtons(selected = "feed_tab")))
+            assertEquals(Decision.NONE, decide(it, INSTAGRAM_MAIN, feed(), offscreenReelsPage(), *tabButtons()))
+        }
+    }
+
+    @Test
     fun `dm thread with the reels tree behind it is left alone`() {
         both.forEach { assertEquals(Decision.NONE, decide(it, MAIN_TAB, reelViewer(), dmThread())) }
     }

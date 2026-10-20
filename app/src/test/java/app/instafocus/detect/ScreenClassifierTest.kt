@@ -18,6 +18,32 @@ class ScreenClassifierTest {
     }
 
     @Test
+    fun `tab buttons without a tab bar node count as the tab bar`() {
+        // Device dump on 451: feed_tab, clips_tab, ... are direct children of the root.
+        val result = classify(INSTAGRAM_MAIN, reelViewer(), *tabButtons(selected = "clips_tab"))
+        assertEquals(Screen.REELS_TAB, result.screen)
+        assertTrue(result.tabBarVisible)
+    }
+
+    @Test
+    fun `no tab selected and the reels pager on screen is the reels tab`() {
+        // After a cold start no tab reports isSelected; the Reels page being on screen decides.
+        assertEquals(Screen.REELS_TAB, classify(INSTAGRAM_MAIN, reelViewer(), *tabButtons()).screen)
+    }
+
+    @Test
+    fun `no tab selected and the reels page off screen is other`() {
+        val result = classify(INSTAGRAM_MAIN, feed(), offscreenReelsPage(), *tabButtons())
+        assertEquals(Screen.OTHER, result.screen)
+        assertNull(result.selectedTab)
+    }
+
+    @Test
+    fun `feed tab selected wins over a visible reels tree`() {
+        assertEquals(Screen.OTHER, classify(INSTAGRAM_MAIN, reelViewer(), feed(), *tabButtons(selected = "feed_tab")).screen)
+    }
+
+    @Test
     fun `reels tab with unknown activity is the reels tab`() {
         assertEquals(Screen.REELS_TAB, classify(null, reelViewer(), tabBar(selected = "clips_tab")).screen)
     }

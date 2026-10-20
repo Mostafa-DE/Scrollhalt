@@ -226,6 +226,24 @@ class ReelPolicyTest {
     }
 
     @Test
+    fun `rapid reels taps during the cooldown never escalate`() {
+        // Device test: 10 taps 200 ms apart. Each tap lands after our Home tap, before any
+        // scan sees the feed; they are new attempts, so every retry goes Home again.
+        val run = Run()
+        val decisions = mutableListOf<Decision>()
+        decisions += run.click(0, "clips_tab").decision
+        (1..10).forEach { i ->
+            val at = i * 200L
+            decisions += run.click(at, "clips_tab").decision
+            decisions += run.seen(at + 100, reelsTab).decision
+        }
+        decisions += run.seen(2_800, reelsTab).decision
+        assertTrue(decisions.none { it == Decision.GLOBAL_HOME || it == Decision.BACK })
+        assertTrue(decisions.count { it == Decision.GO_HOME } >= 3)
+        assertEquals(Decision.NONE, run.seen(3_000, feed).decision)
+    }
+
+    @Test
     fun `reels tab click after a successful go home starts fresh`() {
         val run = Run()
         run.seen(0, reelsTab)

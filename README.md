@@ -78,8 +78,12 @@ The key fact: Instagram keeps the Reels tab (its `clips_viewer_view_pager`, cont
 and video, flagged visible and full screen) alive behind every other screen, including
 DM threads. So the reel tree being present proves nothing. InstaFocus instead uses:
 
-- the bottom **`tab_bar`**: on screen on tab roots, gone inside threads, viewers and modals;
-- which tab is **selected** (`feed_tab`, `clips_tab`, `direct_tab`, `search_tab`, `profile_tab`);
+- the bottom **tab buttons** (`feed_tab`, `clips_tab`, `direct_tab`, `search_tab`,
+  `profile_tab`): on screen on tab roots, gone inside threads, viewers and modals. In the
+  accessibility tree on 451 there is no `tab_bar` node; the buttons sit directly under the root;
+- which tab is **selected**. A tab reports isSelected only after a tab switch; after a cold
+  start none does, and then the Reels page being on screen (pages of the main tab
+  ViewPager other than the current one are not visible to accessibility) marks the Reels tab;
 - the current **activity** from window-state events, only as a positive signal: a reel
   shared in a DM opens in `TransparentModalActivity`. The main screens report
   `InstagramMainActivity` in events (dumpsys shows `MainTabActivity`), so nothing else
@@ -97,7 +101,8 @@ Flow:
    (at most one every 100 ms; nothing runs while idle). The scan copies the on-screen
    part of the view tree (`service/NodeSnapshot`).
 2. `ScreenClassifier` names the screen:
-   - **REELS_TAB**: `tab_bar` on screen and `clips_tab` selected, in any activity.
+   - **REELS_TAB**: tab buttons on screen and `clips_tab` selected (or no tab selected and
+     the Reels pager on screen), in any activity.
    - **SINGLE_REEL**: a reel pager and reel controls on screen, no `tab_bar`, and
      `clips_tab` not selected. Marked *shared in DM* when the activity is
      `TransparentModalActivity` or a shared-reel marker is on screen. Covers DM reels and
@@ -120,7 +125,8 @@ Flow:
    - Escalation instead of giving up: an action is *ineffective* when the first scan after
      the cooldown still shows the same blocked screen. Each rung is tried twice:
      Reels tab: tap Home tab, then the launcher (`GLOBAL_ACTION_HOME`). Single reel:
-     snap back, then Back, then the launcher. Leaving to any other screen resets it.
+     snap back, then Back, then the launcher. Leaving to any other screen, or a new tap on
+     the Reels tab after our action (a new attempt, not a failure), resets it.
    - Only if the launcher itself fails 3 times in 10 s (so detection is probably broken)
      does it pause for 10 s and log "detection may be broken". Effective actions never
      cause a pause.
@@ -128,6 +134,9 @@ Flow:
    - For adb diagnosis, every action and screen change is logged to logcat with tag
      `InstaFocus` (`adb logcat -s InstaFocus`): activity, screen, selected tab, tab bar
      visibility, pager indexes, decision and reason. Ids and indexes only, never text.
+     With **Capture visible view ids** on, or `adb shell setprop log.tag.InstaFocus VERBOSE`,
+     every scan also logs the whole snapshot (id, visible/selected flags, bounds) and every
+     click event; `adb shell setprop log.tag.InstaFocus ""` turns that off again.
 
 ## Updating InstagramRules after an Instagram update
 

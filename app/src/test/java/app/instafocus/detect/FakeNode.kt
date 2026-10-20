@@ -33,6 +33,16 @@ fun tabBar(selected: String = "feed_tab", visible: Boolean = true): FakeNode = n
     children = InstagramRules.tabIds.map { node(it, visible, selected = it == selected) }.toTypedArray(),
 )
 
+/** Tab buttons as the 451 accessibility tree has them: siblings under the root, no tab_bar node. */
+fun tabButtons(selected: String? = null): Array<UiNode> =
+    InstagramRules.tabIds.map { node(it, selected = it == selected) }.toTypedArray()
+
+/** A tab page the main ViewPager keeps off screen: not visible to accessibility, empty bounds. */
+fun offscreenReelsPage(): FakeNode = node(
+    "clips_viewer_view_pager", visible = false, bounds = Bounds(1080, 112, 1080, 2163),
+    children = arrayOf(node("clips_ufi_component", visible = false)),
+)
+
 /** A reel pager with its controls, as Instagram keeps it alive, visible, behind other screens. */
 fun reelViewer(
     bounds: Bounds = SCREEN,

@@ -60,7 +60,13 @@ data class ReelPolicy(
     private fun onClick(input: ViewClicked, settings: PolicySettings): PolicyResult = when {
         !InstagramRules.matches(input.viewId, InstagramRules.REELS_TAB_ID) -> idle(input.atMillis, "click ignored")
         !settings.blockingEnabled -> PolicyResult(this, Decision.NONE, "Reels tab clicked, blocking disabled")
-        else -> copy(session = null).block(input.atMillis, Screen.REELS_TAB, Decision.GO_HOME, "Reels tab clicked")
+        else -> {
+            // A tap on the Reels tab after our last action is a new attempt by the user, not
+            // proof that the action failed: start the ladder again instead of escalating.
+            val fresh = pending?.takeIf { it.target == Screen.REELS_TAB && input.atMillis > it.actedAt } != null
+            copy(session = null, pending = if (fresh) null else pending)
+                .block(input.atMillis, Screen.REELS_TAB, Decision.GO_HOME, "Reels tab clicked")
+        }
     }
 
     private fun onScreen(input: ScreenSeen, settings: PolicySettings): PolicyResult {

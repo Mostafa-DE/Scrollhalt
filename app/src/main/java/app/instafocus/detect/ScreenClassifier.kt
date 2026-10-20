@@ -9,17 +9,24 @@ package app.instafocus.detect
  */
 object ScreenClassifier {
     fun classify(root: UiNode, activity: String?): Classification {
-        val tabBar = root.findOnScreen(listOf(InstagramRules.TAB_BAR_ID))
-        val selectedTab = tabBar?.let(::selectedTab)
+        val tabButtons = root.walk()
+            .filter { node -> node.isOnScreen() && InstagramRules.tabIds.any { InstagramRules.matches(node.viewId, it) } }
+            .toList()
+        val tabBarVisible = tabButtons.isNotEmpty() || root.findOnScreen(listOf(InstagramRules.TAB_BAR_ID)) != null
+        val selectedTab = tabButtons.firstOrNull { it.isSelected }
+            ?.let { node -> InstagramRules.tabIds.first { InstagramRules.matches(node.viewId, it) } }
+        val pagerOnScreen = root.findOnScreen(InstagramRules.reelViewerIds) != null
         val reelsTabSelected = root.walk().any { it.isSelected && InstagramRules.matches(it.viewId, InstagramRules.REELS_TAB_ID) }
-        val reelInFront = tabBar == null && !reelsTabSelected && root.findOnScreen(InstagramRules.reelViewerIds) != null
+        val reelInFront = !tabBarVisible && !reelsTabSelected && pagerOnScreen
         val reelUiOnScreen = root.findOnScreen(InstagramRules.reelUiIds) != null
         val sharedSignal = InstagramRules.isActivity(activity, InstagramRules.MODAL_ACTIVITY) ||
             root.findOnScreen(InstagramRules.sharedReelMarkerIds) != null
 
         val screen = when {
             // Any activity: the tab bar and its selection are the signal, not the activity name.
-            selectedTab == InstagramRules.REELS_TAB_ID -> Screen.REELS_TAB
+            // With no tab selected yet (cold start), the Reels pager on screen means the Reels tab.
+            tabBarVisible && selectedTab == InstagramRules.REELS_TAB_ID -> Screen.REELS_TAB
+            tabBarVisible && selectedTab == null && pagerOnScreen -> Screen.REELS_TAB
             reelInFront && reelUiOnScreen && sharedSignal -> Screen.SINGLE_REEL
             root.findOnScreen(InstagramRules.dmMarkerIds) != null -> Screen.DM
             reelInFront && reelUiOnScreen -> Screen.SINGLE_REEL
@@ -29,14 +36,9 @@ object ScreenClassifier {
         return Classification(
             screen = screen,
             sharedInDm = screen == Screen.SINGLE_REEL && sharedSignal,
-            tabBarVisible = tabBar != null,
+            tabBarVisible = tabBarVisible,
             selectedTab = selectedTab,
             activity = activity,
         )
     }
-
-    private fun selectedTab(tabBar: UiNode): String? =
-        tabBar.walk()
-            .firstOrNull { it.isSelected && it.isOnScreen() && InstagramRules.tabIds.any { name -> InstagramRules.matches(it.viewId, name) } }
-            ?.let { node -> InstagramRules.tabIds.first { InstagramRules.matches(node.viewId, it) } }
 }

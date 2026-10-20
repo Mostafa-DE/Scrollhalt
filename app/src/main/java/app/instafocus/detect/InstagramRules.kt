@@ -59,11 +59,21 @@ object InstagramRules {
         "direct_inbox_recycler_view",
     )
 
+    /**
+     * Bottom tab bar container. Seen in the View hierarchy (dumpsys), but on 451 the
+     * accessibility tree has no such node: the tab buttons are direct children of the root.
+     * So the tab bar counts as on screen when it or any tab button is on screen.
+     */
     const val TAB_BAR_ID: String = "tab_bar"
     const val REELS_TAB_ID: String = "clips_tab"
     const val HOME_TAB_ID: String = "feed_tab"
 
-    /** Bottom tabs, in bar order; used to log which one is selected. */
+    /**
+     * Bottom tab buttons, in bar order. On 451 a tab reports isSelected only after a tab
+     * switch; after a cold start no tab is selected. Then the Reels tab is recognised by
+     * its pager being on screen: tab pages live in a ViewPager (`swipeable_tab_view_pager`)
+     * and pages other than the current one are not visible to accessibility.
+     */
     val tabIds: List<String> = listOf("feed_tab", "clips_tab", "direct_tab", "search_tab", "profile_tab")
 
     /** Full id for findAccessibilityNodeInfosByViewId. */

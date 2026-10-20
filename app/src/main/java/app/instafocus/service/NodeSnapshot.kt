@@ -35,12 +35,14 @@ data class NodeSnapshot(
             count++
             val visible = node.isVisibleToUser
             node.getBoundsInScreen(rect)
+            // Read the bounds before visiting children: they reuse the same Rect.
+            val bounds = Bounds(rect.left, rect.top, rect.right, rect.bottom)
             val children = if (visible && depth < MAX_DEPTH) copyChildren(node, depth) else emptyList()
             NodeSnapshot(
                 viewId = node.viewIdResourceName,
                 isVisibleToUser = visible,
                 isSelected = node.isSelected,
-                bounds = Bounds(rect.left, rect.top, rect.right, rect.bottom),
+                bounds = bounds,
                 children = children,
             )
         } catch (_: RuntimeException) {

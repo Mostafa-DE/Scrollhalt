@@ -25,6 +25,7 @@ import app.instafocus.detect.PolicySettings
 import app.instafocus.detect.ReelPolicy
 import app.instafocus.detect.ScreenClassifier
 import app.instafocus.detect.SnapDirection
+import app.instafocus.detect.UiNode
 import app.instafocus.detect.onScreenIds
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -38,8 +39,8 @@ import kotlinx.coroutines.launch
  */
 class InstaFocusService : AccessibilityService() {
     private val handler = Handler(Looper.getMainLooper())
-    private val scanRunnable = Runnable { scan() }
-    private val retryRunnable = Runnable { scan() }
+    private val scanRunnable = Runnable { safely("scan") { scan() } }
+    private val retryRunnable = Runnable { safely("retry scan") { scan() } }
     private var scanPending = false
     private var scope: CoroutineScope? = null
 
@@ -62,6 +63,10 @@ class InstaFocusService : AccessibilityService() {
 
     override fun onAccessibilityEvent(event: AccessibilityEvent) {
         if (event.packageName?.toString() != InstagramRules.PACKAGE) return
+        safely("event ${event.eventType}") { onInstagramEvent(event) }
+    }
+
+    private fun onInstagramEvent(event: AccessibilityEvent) {
         when (event.eventType) {
             AccessibilityEvent.TYPE_VIEW_CLICKED -> onClicked(event)
             AccessibilityEvent.TYPE_VIEW_SCROLLED -> onScrolled(event)
@@ -113,6 +118,7 @@ class InstaFocusService : AccessibilityService() {
 
     private fun onClicked(event: AccessibilityEvent) {
         val viewId = withSource(event) { it.viewIdResourceName }
+        if (verbose()) Log.v(TAG, "click event view=${viewId?.substringAfter(":id/") ?: "-"}")
         val result = apply(PolicyInput.ViewClicked(now(), viewId))
         log("click", "view=${viewId?.substringAfter(":id/") ?: "-"}", result)
         perform(result, pager = null)
@@ -152,13 +158,19 @@ class InstaFocusService : AccessibilityService() {
             rootInActiveWindow
         } catch (_: RuntimeException) {
             null
-        } ?: return
+        }
+        if (root == null) {
+            if (verbose()) Log.v(TAG, "scan: no active window root")
+            return
+        }
         try {
+            if (verbose()) Log.v(TAG, "scan: root package=${root.packageName} window=${root.windowId}")
             if (root.packageName?.toString() != InstagramRules.PACKAGE) {
                 log("scan", "outside Instagram", apply(PolicyInput.LeftApp(now())))
                 return
             }
             val snapshot = NodeSnapshot.of(root) ?: return
+            if (verbose()) dumpTree(snapshot)
             if (settings.debugCapture) DebugLog.setSnapshot(snapshot.onScreenIds())
             val classification = ScreenClassifier.classify(snapshot, activity)
             val result = apply(PolicyInput.ScreenSeen(now(), classification))
@@ -270,6 +282,30 @@ class InstaFocusService : AccessibilityService() {
         append(" tab=").append(classification.selectedTab ?: "none")
         append(" tabBar=").append(if (classification.tabBarVisible) "visible" else "hidden")
         append(" act=").append(activityName())
+    }
+
+    /** A bug here must not crash the service (Android would unbind it); log it instead. */
+    private inline fun safely(what: String, block: () -> Unit) {
+        try {
+            block()
+        } catch (e: RuntimeException) {
+            Log.e(TAG, "$what failed", e)
+        }
+    }
+
+    /** Verbose diagnostics: debug capture on, or `adb shell setprop log.tag.InstaFocus VERBOSE`. */
+    private fun verbose(): Boolean = settings.debugCapture || Log.isLoggable(TAG, Log.VERBOSE)
+
+    /** Ids, flags and bounds of every node in the snapshot. Never text or content descriptions. */
+    private fun dumpTree(root: UiNode) {
+        fun visit(node: UiNode, depth: Int) {
+            val b = node.bounds
+            val flags = (if (node.isVisibleToUser) "V" else "-") + (if (node.isSelected) "S" else "-")
+            val id = node.viewId?.substringAfter(":id/") ?: "."
+            Log.v(TAG, "tree ${" ".repeat(depth)}$id $flags ${b.left},${b.top}-${b.right},${b.bottom} children=${node.children.size}")
+            node.children.forEach { visit(it, depth + 1) }
+        }
+        visit(root, 0)
     }
 
     private fun activityName(): String = activity?.substringAfterLast('.') ?: "unknown"
