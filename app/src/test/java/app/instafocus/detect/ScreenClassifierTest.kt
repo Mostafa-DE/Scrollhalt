@@ -78,6 +78,34 @@ class ScreenClassifierTest {
         assertEquals(Screen.SINGLE_REEL, classify(INSTAGRAM_MAIN, profilePage(), reelViewer()).screen)
     }
 
+    private fun pagerWithPages(onScreenPage: Int): FakeNode {
+        val pages = (0..2).map { i ->
+            val bounds = if (i == onScreenPage) SCREEN else Bounds(1080, 0, 1080, 2400)
+            FakeNode(null, isVisibleToUser = i == onScreenPage, bounds = bounds, key = 100 + i, children = listOf(node("clips_ufi_component", visible = i == onScreenPage)))
+        }
+        return FakeNode(ig("clips_viewer_view_pager"), bounds = SCREEN, key = 7, children = pages)
+    }
+
+    @Test
+    fun `reel page identity is the on-screen page of the front pager`() {
+        assertEquals("7/100", classify(INSTAGRAM_MAIN, pagerWithPages(0)).reelPage)
+        assertEquals("7/101", classify(INSTAGRAM_MAIN, pagerWithPages(1)).reelPage)
+    }
+
+    @Test
+    fun `half-swiped pager reports the page with the larger visible area`() {
+        val top = FakeNode(null, bounds = Bounds(0, 0, 1080, 600), key = 1, children = listOf(node("clips_ufi_component")))
+        val bottom = FakeNode(null, bounds = Bounds(0, 600, 1080, 2400), key = 2)
+        val pager = FakeNode(ig("clips_viewer_view_pager"), bounds = SCREEN, key = 9, children = listOf(top, bottom))
+        assertEquals("9/2", classify(INSTAGRAM_MAIN, pager).reelPage)
+    }
+
+    @Test
+    fun `no reel page without node identities or outside a reel`() {
+        assertNull(classify(INSTAGRAM_MAIN, reelViewer()).reelPage)
+        assertNull(classify(INSTAGRAM_MAIN, feed(), *tabButtons("feed_tab")).reelPage)
+    }
+
     @Test
     fun `reels tab with unknown activity is the reels tab`() {
         assertEquals(Screen.REELS_TAB, classify(null, reelViewer(), tabBar(selected = "clips_tab")).screen)

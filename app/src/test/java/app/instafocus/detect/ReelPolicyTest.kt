@@ -223,7 +223,7 @@ class ReelPolicyTest {
     fun `swipe upwards closes too`() {
         val run = Run()
         run.seen(0, shared)
-        run.scroll(700, 4)
+        run.scroll(200, 4)
         assertEquals(Decision.BACK, run.scroll(3_000, 3).decision)
     }
 
@@ -261,20 +261,79 @@ class ReelPolicyTest {
     }
 
     @Test
-    fun `last index in the settle window wins`() {
+    fun `a second index right after opening is already a swipe`() {
         val run = Run()
         run.seen(500, feedReel)
         run.scroll(600, 0)
-        run.scroll(900, 7)
-        assertEquals(Decision.NONE, run.scroll(3_000, 7).decision)
+        assertEquals(Decision.BACK, run.scroll(900, 1).decision)
+    }
+
+    // Device bug on a5832bd: viewer seen at t, the user's first swipe (from=1) at t+560 fell in
+    // the 1.2 s settle window, was adopted as the start, and the next reel played.
+
+    private fun page(n: Int): Classification = feedReel.copy(reelPage = "7/$n")
+
+    @Test
+    fun `logged feed sequence without page identity closes on the first swipe`() {
+        val run = Run()
+        run.seen(0, feed)
+        assertEquals(Decision.NONE, run.seen(48_459, feedReel).decision)
+        assertEquals(Decision.BACK, run.scroll(49_020, 1).decision)
     }
 
     @Test
-    fun `start index adopted late when none was seen`() {
+    fun `logged feed sequence with page identity closes on the first swipe`() {
+        val run = Run()
+        run.seen(0, feed)
+        assertEquals(Decision.NONE, run.seen(48_459, page(0)).decision)
+        assertEquals(Decision.NONE, run.scroll(49_020, 1).decision)
+        run.scroll(49_151, 1)
+        assertEquals(Decision.BACK, run.seen(49_150, page(1)).decision)
+    }
+
+    @Test
+    fun `logged dm sequence still closes on the first swipe`() {
+        val run = Run()
+        run.seen(0, dm)
+        run.scroll(35_598, 0)
+        val shared0 = shared.copy(reelPage = "7/0")
+        assertEquals(Decision.NONE, run.seen(35_717, shared0).decision)
+        assertEquals(Decision.BACK, run.scroll(38_583, 1).decision)
+    }
+
+    @Test
+    fun `positioning scroll that keeps the same page does not close`() {
+        val run = Run()
+        run.seen(0, page(0))
+        run.scroll(560, 3)
+        assertEquals(Decision.NONE, run.seen(700, page(0)).decision)
+        assertEquals(Decision.NONE, run.seen(5_000, page(0)).decision)
+    }
+
+    @Test
+    fun `page swapped without any scroll does not close`() {
+        val run = Run()
+        run.seen(0, page(0))
+        assertEquals(Decision.NONE, run.seen(400, page(9)).decision)
+        assertEquals(Decision.NONE, run.seen(3_000, page(9)).decision)
+        run.scroll(4_000, 0)
+        assertEquals(Decision.BACK, run.seen(4_100, page(10)).decision)
+    }
+
+    @Test
+    fun `page recorded on a later scan when the first had none`() {
+        val run = Run()
+        run.seen(0, feedReel)
+        assertEquals(Decision.NONE, run.seen(200, page(0)).decision)
+        run.scroll(2_000, 1)
+        assertEquals(Decision.BACK, run.seen(2_100, page(1)).decision)
+    }
+
+    @Test
+    fun `first late scroll without any baseline is a swipe`() {
         val run = Run()
         run.seen(500, feedReel)
-        assertEquals(Decision.NONE, run.scroll(5_000, 3).decision)
-        assertEquals(Decision.BACK, run.scroll(5_300, 4).decision)
+        assertEquals(Decision.BACK, run.scroll(5_000, 3).decision)
     }
 
     @Test

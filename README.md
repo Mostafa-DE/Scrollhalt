@@ -113,8 +113,13 @@ Signals:
   **shared-reel markers** (`clips_sent_by`, `reel_viewer_message_composer`,
   `reply_bar_container_scroll_view`, `sender_username_or_fullname`; ids only, their text
   is never read);
+- **the reel page on screen**: the identity of the largest on-screen child of the front
+  pager, recorded when the viewer opens. A different page after a pager scroll means a
+  swipe (a page swapped without any scroll is Instagram's own and is just recorded);
 - **scroll events from the reel pager** (it reports its current page as `fromIndex`; only
-  the pager in front scrolls, and pagers are told apart by their source node);
+  the pager in front scrolls, and pagers are told apart by their source node). Only scrolls
+  up to the first scan of the viewer can set the start index; any later different index is
+  a swipe;
 - **window changes of other apps**, only to notice that Instagram is no longer in front
   (package name only). This is why the service has no package filter.
 

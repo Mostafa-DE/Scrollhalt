@@ -13,6 +13,7 @@ data class FakeNode(
     override val isSelected: Boolean = false,
     override val bounds: Bounds = SMALL,
     override val children: List<UiNode> = emptyList(),
+    override val key: Int? = null,
 ) : UiNode
 
 fun ig(name: String): String = "com.instagram.android:id/$name"

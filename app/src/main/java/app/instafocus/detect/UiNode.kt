@@ -17,6 +17,12 @@ interface UiNode {
     val isSelected: Boolean
     val bounds: Bounds
     val children: List<UiNode>
+
+    /**
+     * Identity of the live view this node came from (AccessibilityNodeInfo equality: window
+     * plus view id), stable while the view exists. Null when unknown.
+     */
+    val key: Int? get() = null
 }
 
 /** Depth-first walk over this node and all its descendants. */

@@ -336,6 +336,7 @@ class InstaFocusService : AccessibilityService() {
     private fun describe(classification: Classification): String = buildString {
         append(classification.screen.name)
         if (classification.sharedInDm) append(" shared")
+        classification.reelPage?.let { append(" page=").append(it) }
         append(" tab=").append(classification.selectedTab ?: "none")
         append(" tabBar=").append(if (classification.tabBarVisible) "visible" else "hidden")
         append(" act=").append(activityName())
@@ -359,7 +360,7 @@ class InstaFocusService : AccessibilityService() {
             val b = node.bounds
             val flags = (if (node.isVisibleToUser) "V" else "-") + (if (node.isSelected) "S" else "-")
             val id = node.viewId?.substringAfter(":id/") ?: "."
-            Log.v(LOG_TAG, "tree ${" ".repeat(depth)}$id $flags ${b.left},${b.top}-${b.right},${b.bottom} children=${node.children.size}")
+            Log.v(LOG_TAG, "tree ${" ".repeat(depth)}$id $flags ${b.left},${b.top}-${b.right},${b.bottom} key=${node.key} children=${node.children.size}")
             node.children.forEach { visit(it, depth + 1) }
         }
         visit(root, 0)

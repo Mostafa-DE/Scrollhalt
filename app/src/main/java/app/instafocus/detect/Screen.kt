@@ -36,6 +36,11 @@ data class Classification(
     val selectedTab: String? = null,
     /** On-screen bounds of the Reels tab button, while the tab bar is visible: where the cover goes. */
     val reelsTabBounds: Bounds? = null,
+    /**
+     * For a reel in front: identity of the reel page on screen (the largest on-screen child
+     * of the front pager), as "pagerKey/pageKey". A different page means the user swiped.
+     */
+    val reelPage: String? = null,
     /** Current Instagram activity class, if known (for the debug log). */
     val activity: String? = null,
 )

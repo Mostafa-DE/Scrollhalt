@@ -24,6 +24,7 @@ class TreeCopyTest {
         override fun isVisibleToUser(node: Live): Boolean = if (node.stale) throw IllegalStateException() else node.visible
         override fun isSelected(node: Live): Boolean = node.selected
         override fun childCount(node: Live): Int = node.children.size
+        override fun key(node: Live): Int = node.id.hashCode()
         override fun child(node: Live, index: Int): Live = node.children[index]
         override fun release(node: Live) {
             released += node.id
@@ -52,6 +53,7 @@ class TreeCopyTest {
         assertEquals(Bounds(0, 112, 1080, 2163), copy?.children?.get(0)?.bounds)
         assertEquals(Bounds(216, 2163, 432, 2298), copy?.children?.get(1)?.bounds)
         assertTrue(copy?.children?.get(1)?.isSelected == true)
+        assertEquals("clips_tab".hashCode(), copy?.children?.get(1)?.key)
     }
 
     @Test

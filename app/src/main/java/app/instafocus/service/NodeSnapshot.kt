@@ -26,6 +26,7 @@ object NodeSnapshot {
         override fun childCount(node: AccessibilityNodeInfo): Int = node.childCount
         override fun child(node: AccessibilityNodeInfo, index: Int): AccessibilityNodeInfo? = node.getChild(index)
         override fun release(node: AccessibilityNodeInfo) = node.release()
+        override fun key(node: AccessibilityNodeInfo): Int = node.hashCode()
 
         /** Returns a value copy: the shared Rect must never leak past this call. */
         override fun bounds(node: AccessibilityNodeInfo): Bounds {

@@ -41,9 +41,22 @@ object ScreenClassifier {
             tabBarVisible = tabBarVisible,
             selectedTab = selectedTab,
             reelsTabBounds = reelsTabBounds,
+            reelPage = if (reelInFront) reelPage(root) else null,
             activity = activity,
         )
     }
+
+    private fun reelPage(root: UiNode): String? {
+        val pager = root.walk()
+            .filter { it.isOnScreen() && InstagramRules.reelViewerIds.any { name -> InstagramRules.matches(it.viewId, name) } }
+            .maxByOrNull { it.bounds.area() } ?: return null
+        val page = pager.children.filter { it.isOnScreen() }.maxByOrNull { it.bounds.area() } ?: return null
+        val pagerKey = pager.key ?: return null
+        val pageKey = page.key ?: return null
+        return "$pagerKey/$pageKey"
+    }
+
+    private fun Bounds.area(): Long = width.toLong() * height.toLong()
 
     private fun exploreCells(root: UiNode): Int =
         root.walk().count { it.isOnScreen() && InstagramRules.matches(it.viewId, InstagramRules.EXPLORE_GRID_CELL_ID) }

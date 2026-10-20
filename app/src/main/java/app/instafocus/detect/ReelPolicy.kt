@@ -49,14 +49,16 @@ data class ReelPolicy(
     val pausedUntil: Long? = null,
 ) {
     /**
-     * A reel the user opened. The first page change of [pagerKey] away from [startIndex]
-     * sets [swipedAway], and from then on the viewer is closed until it is gone.
+     * A reel the user opened. Leaving it sets [swipedAway], and from then on the viewer is
+     * closed until it is gone. Primary signal: the on-screen page [pageKey] is replaced by
+     * another page. Secondary: a scroll of [pagerKey] reports an index other than [startIndex].
      */
     data class ViewerSession(
         val startedAt: Long,
         val origin: ReelOrigin,
         val pagerKey: String? = null,
         val startIndex: Int? = null,
+        val pageKey: String? = null,
         val swipedAway: Boolean = false,
     )
 
@@ -129,12 +131,24 @@ data class ReelPolicy(
             origin == ReelOrigin.DM && !settings.allowSingleReel ->
                 base.block(at, Screen.SINGLE_REEL, Decision.BACK, "reel shared in DM, single reels off")
             current == null -> {
-                val recent = base.lastScroll?.takeIf { at - it.atMillis <= SETTLE_MS }
-                val session = ViewerSession(at, origin, recent?.pagerKey, recent?.fromIndex)
+                // Instagram positions the pager while opening, so only scrolls up to this
+                // first scan of the viewer can set the start index.
+                val recent = base.lastScroll?.takeIf { at - it.atMillis <= OPENING_SCROLL_MS }
+                val session = ViewerSession(at, origin, recent?.pagerKey, recent?.fromIndex, classification.reelPage)
                 PolicyResult(base.copy(session = session), Decision.NONE, "first reel allowed (from $origin)")
             }
             // Also enforces a swipe whose BACK was held back by the cooldown.
             current.swipedAway -> base.block(at, Screen.SINGLE_REEL, Decision.BACK, "swiped to another reel")
+            current.pageKey == null && classification.reelPage != null ->
+                PolicyResult(base.copy(session = current.copy(pageKey = classification.reelPage)), Decision.NONE, "reel page recorded")
+            classification.reelPage != null && classification.reelPage != current.pageKey ->
+                if (base.lastScroll?.let { it.atMillis > current.startedAt } == true) {
+                    base.copy(session = current.copy(swipedAway = true))
+                        .block(at, Screen.SINGLE_REEL, Decision.BACK, "another reel page on screen after a scroll")
+                } else {
+                    // A swipe always scrolls the pager; a page swapped without one is Instagram's own.
+                    PolicyResult(base.copy(session = current.copy(pageKey = classification.reelPage)), Decision.NONE, "page replaced without a scroll")
+                }
             else -> PolicyResult(base, Decision.NONE, "first reel playing (from ${current.origin})")
         }
     }
@@ -149,18 +163,23 @@ data class ReelPolicy(
         if (!settings.blockingEnabled) return PolicyResult(tracked, Decision.NONE, "blocking disabled")
 
         val start = current.startIndex
-        val restart = { why: String ->
+        val adopt = { why: String ->
             val session = current.copy(pagerKey = input.pagerKey, startIndex = index)
             PolicyResult(tracked.copy(session = session), Decision.NONE, "start index $index ($why)")
         }
+        val swiped = { why: String ->
+            tracked.copy(session = current.copy(swipedAway = true)).block(input.atMillis, Screen.SINGLE_REEL, Decision.BACK, why)
+        }
         return when {
             current.swipedAway -> tracked.block(input.atMillis, Screen.SINGLE_REEL, Decision.BACK, "still swiping")
-            input.atMillis - current.startedAt < SETTLE_MS -> restart("settling")
-            start == null -> restart("adopted late")
-            input.pagerKey != current.pagerKey -> restart("different pager")
+            start == null && current.pageKey != null ->
+                // The page identity decides on the next scan; the index only becomes the baseline.
+                adopt("page identity decides")
+            start == null && input.atMillis - current.startedAt <= LATE_POSITIONING_MS -> adopt("opening")
+            start == null -> swiped("first scroll after the reel opened, index $index")
+            input.pagerKey != current.pagerKey -> adopt("different pager")
             index == start -> PolicyResult(tracked, Decision.NONE, "on the opened reel")
-            else -> tracked.copy(session = current.copy(swipedAway = true))
-                .block(input.atMillis, Screen.SINGLE_REEL, Decision.BACK, "swiped from reel $start to $index")
+            else -> swiped("swiped from reel $start to $index")
         }
     }
 
@@ -218,7 +237,11 @@ data class ReelPolicy(
     }
 
     companion object {
-        const val SETTLE_MS: Long = 1_200
+        /** A scroll at most this long before the first viewer scan is Instagram positioning the pager. */
+        const val OPENING_SCROLL_MS: Long = 1_200
+
+        /** Without a page identity, an unexplained first scroll this soon is still positioning. */
+        const val LATE_POSITIONING_MS: Long = 300
         const val COOLDOWN_MS: Long = 700
         const val BROKEN_WINDOW_MS: Long = 10_000
         const val PAUSE_MS: Long = 10_000
