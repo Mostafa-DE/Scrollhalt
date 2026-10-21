@@ -25,7 +25,7 @@
 
     <string name="setting_block">Block Reels</string>
     <string name="setting_single_reel">Shared Reels play once</string>
-    <string name="setting_single_reel_detail">From DMs, profiles and the feed</string>
+    <string name="setting_single_reel_detail">Reels sent to you in DMs</string>
 
     <string name="version_label">v%1$s</string>
 
