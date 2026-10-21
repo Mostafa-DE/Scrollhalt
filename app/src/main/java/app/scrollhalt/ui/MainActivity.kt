@@ -15,6 +15,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.platform.LocalContext
 import androidx.lifecycle.compose.LifecycleResumeEffect
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import app.scrollhalt.BuildConfig
 import app.scrollhalt.data.AppSettings
 import app.scrollhalt.data.SettingsRepository
 import app.scrollhalt.debug.DebugLog
@@ -64,11 +65,12 @@ private fun App(repository: SettingsRepository) {
         MainScreen(
             status = protectionStatus(enabled, connected, settings.blockingEnabled),
             settings = settings,
+            versionName = BuildConfig.VERSION_NAME,
             onBlockingChange = { scope.launch { repository.setBlockingEnabled(it) } },
             onAllowSingleReelChange = { scope.launch { repository.setAllowSingleReel(it) } },
             onOpenAccessibility = { context.startActivity(accessibilitySettingsIntent()) },
             onOpenAppInfo = { context.startActivity(appInfoIntent(context)) },
-            onOpenDebug = { showDebug = true },
+            onOpenDiagnostics = { showDebug = true },
         )
     }
 }

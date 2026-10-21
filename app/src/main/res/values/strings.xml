@@ -8,38 +8,42 @@
     <string name="toast_blocked">Reels blocked</string>
     <string name="toast_tab_hidden">Reels hidden by Scrollhalt</string>
 
-    <string name="status_title">Status</string>
-    <string name="status_off">Off</string>
-    <string name="status_off_detail">The accessibility service is not enabled. Open Accessibility settings and turn on Scrollhalt.</string>
-    <string name="status_not_running">Enabled, not running</string>
-    <string name="status_not_running_detail">The service is enabled but not connected. Toggle it off and on again, and set Scrollhalt to Never sleeping in battery settings.</string>
+    <string name="menu_more">More options</string>
+
     <string name="status_protecting">Protecting</string>
-    <string name="status_protecting_detail">The Reels feed is blocked in Instagram.</string>
+    <string name="status_protecting_detail">Reels are hidden in Instagram</string>
     <string name="status_paused">Paused</string>
-    <string name="status_paused_detail">The service is running but Block Reels is off.</string>
+    <string name="status_paused_detail">Tap to resume</string>
+    <string name="status_paused_action">Resume blocking</string>
+    <string name="status_setup">Setup needed</string>
+    <string name="status_setup_button">Turn on Scrollhalt</string>
+
+    <string name="setup_restricted_title">Greyed out? Allow restricted settings</string>
+    <string name="setup_restricted_detail">App info › ⋮ › Allow restricted settings</string>
+    <string name="setup_samsung_title">Keep it running on Samsung</string>
+    <string name="setup_samsung_detail">Battery › Never sleeping apps</string>
 
     <string name="setting_block">Block Reels</string>
-    <string name="setting_single_reel">Allow reels shared in DMs</string>
-    <string name="setting_single_reel_detail">A reel someone sends you plays; swiping to the next one closes it. Off: shared reels close right away. Reels from the feed or a profile always play once; reels from the Explore grid are always closed.</string>
-    <string name="open_accessibility_settings">Open Accessibility settings</string>
+    <string name="setting_single_reel">Shared Reels play once</string>
+    <string name="setting_single_reel_detail">From DMs, profiles and the feed</string>
 
-    <string name="setup_title">Setup help</string>
-    <string name="setup_restricted">If the Scrollhalt switch is greyed out in Accessibility settings, Android has restricted it because the app was not installed from a store. Open App info, tap the three-dot menu at the top right, choose Allow restricted settings, confirm, then go back and enable the service.</string>
-    <string name="setup_samsung">Samsung phones may stop the service in the background. In Settings > Battery > Background usage limits, add Scrollhalt to Never sleeping apps (or open App info > Battery and choose Unrestricted).</string>
-    <string name="open_app_info">Open App info</string>
+    <string name="version_label">v%1$s</string>
 
     <string name="how_title">How it works</string>
-    <string name="how_body">Scrollhalt looks at Instagram\'s view ids, not at what is on the screen. It covers the Reels tab button with a patch in the tab bar\'s colour, and if the Reels tab opens anyway it taps Home. A reel shared in a DM, or opened from the feed or a profile, plays once; swiping to the next reel closes it. Reels opened from the Explore grid close right away. It reacts after the viewer appears, so a frame of a reel may flash. It depends on Instagram\'s internal names and layout, so an Instagram update can break it until the rules are updated. It never acts when it is unsure, so it will rather miss a reel than block a chat.</string>
+    <string name="how_tab">The Reels tab is covered so it can\'t be opened.</string>
+    <string name="how_explore">Explore Reels close right away.</string>
+    <string name="how_shared">A Reel shared with you plays once; swiping closes it.</string>
+    <string name="how_private">Everything stays on your phone. No internet, no data collected.</string>
+    <string name="how_disclaimer">Not affiliated with Instagram or Meta.</string>
 
-    <string name="debug_open">Debug log</string>
-    <string name="debug_title">Debug log</string>
-    <string name="debug_back">Back</string>
-    <string name="debug_capture">Capture visible view ids</string>
-    <string name="debug_capture_detail">Keeps the ids of the views on screen in the last scan, in memory only. No text, names or messages.</string>
-    <string name="debug_copy">Copy snapshot</string>
-    <string name="debug_clear">Clear</string>
-    <string name="debug_empty">No entries yet. Open Instagram with the service running.</string>
-    <string name="debug_snapshot_count">View ids in snapshot: %1$d</string>
-    <string name="debug_copied">Snapshot copied</string>
-    <string name="debug_clip_label">Scrollhalt view ids</string>
+    <string name="diag_title">Diagnostics</string>
+    <string name="diag_back">Back</string>
+    <string name="diag_capture">Capture screen IDs</string>
+    <string name="diag_ids_only">IDs only. No text or content is recorded.</string>
+    <string name="diag_copy">Copy snapshot</string>
+    <string name="diag_clear">Clear</string>
+    <string name="diag_empty">No entries yet.</string>
+    <string name="diag_snapshot_count">IDs in snapshot: %1$d</string>
+    <string name="diag_copied">Snapshot copied</string>
+    <string name="diag_clip_label">Scrollhalt view ids</string>
 </resources>
