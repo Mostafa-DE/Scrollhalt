@@ -20,6 +20,8 @@ captures/
 # Signing
 *.jks
 *.keystore
+keystore.properties
+*-keystore.properties
 
 # Agent tooling state
 .omc/

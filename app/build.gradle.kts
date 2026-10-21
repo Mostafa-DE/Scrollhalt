@@ -1,6 +1,20 @@
+import java.util.Properties
+
 plugins {
     alias(libs.plugins.android.application)
     alias(libs.plugins.kotlin.compose)
+}
+
+/**
+ * Release signing, kept outside the repo: storeFile, storePassword, keyAlias, keyPassword.
+ * Read from SCROLLHALT_KEYSTORE_PROPS, else ~/.android-keys/scrollhalt-keystore.properties.
+ * Without it the release build is simply unsigned, so the project builds anywhere.
+ */
+val releaseKeystore: Properties? = run {
+    val path = providers.environmentVariable("SCROLLHALT_KEYSTORE_PROPS").orNull
+        ?: "${System.getProperty("user.home")}/.android-keys/scrollhalt-keystore.properties"
+    val file = File(path)
+    if (file.isFile) Properties().apply { file.inputStream().use { load(it) } } else null
 }
 
 android {
@@ -15,6 +29,17 @@ android {
         versionName = "0.1.0"
     }
 
+    signingConfigs {
+        if (releaseKeystore != null) {
+            create("release") {
+                storeFile = file(releaseKeystore.getProperty("storeFile"))
+                storePassword = releaseKeystore.getProperty("storePassword")
+                keyAlias = releaseKeystore.getProperty("keyAlias")
+                keyPassword = releaseKeystore.getProperty("keyPassword")
+            }
+        }
+    }
+
     buildTypes {
         debug {
             enableUnitTestCoverage = true
@@ -22,7 +47,8 @@ android {
         release {
             isMinifyEnabled = true
             isShrinkResources = true
-            proguardFiles(getDefaultProguardFile("proguard-android-optimize.txt"))
+            proguardFiles(getDefaultProguardFile("proguard-android-optimize.txt"), "proguard-rules.pro")
+            signingConfig = signingConfigs.findByName("release")
         }
     }
 
