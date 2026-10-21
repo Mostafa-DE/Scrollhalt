@@ -18,8 +18,8 @@
     <string name="status_setup">Setup needed</string>
     <string name="status_setup_button">Turn on Scrollhalt</string>
 
-    <string name="setup_restricted_title">Greyed out? Allow restricted settings</string>
-    <string name="setup_restricted_detail">App info › ⋮ › Allow restricted settings</string>
+    <string name="setup_restricted_title">Allow restricted settings</string>
+    <string name="setup_restricted_detail">If the switch is greyed out</string>
     <string name="setup_samsung_title">Keep it running on Samsung</string>
     <string name="setup_samsung_detail">Battery › Never sleeping apps</string>
 
