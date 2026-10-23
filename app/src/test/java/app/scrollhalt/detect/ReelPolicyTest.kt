@@ -301,6 +301,39 @@ class ReelPolicyTest {
         assertEquals(Decision.BACK, run.scroll(38_583, 1).decision)
     }
 
+    // Device bug on Instagram 452: a reel shared on a story. While laying out the viewer,
+    // Instagram scrolled the pager to index 0 twice and replaced the page node; that closed it.
+
+    @Test
+    fun `story reel with positioning scrolls and a page swap keeps playing`() {
+        val run = Run()
+        val pager = "5274:1568790"
+        run.seen(19_748, unknown)
+        assertEquals(Decision.NONE, run.seen(19_893, feedReel.copy(reelPage = "1568790/1596659")).decision)
+        run.scroll(19_894, 0, pager)
+        assertEquals(Decision.NONE, run.scroll(20_240, 0, pager).decision)
+        val swapped = run.seen(20_320, feedReel.copy(reelPage = "1568790/1586088"))
+        assertEquals(Decision.NONE, swapped.decision)
+        assertTrue(swapped.reason.contains("page replaced on the opened reel"))
+        assertEquals(Decision.BACK, run.scroll(23_000, 1, pager).decision)
+    }
+
+    @Test
+    fun `scroll 300 ms after the first scan is still positioning`() {
+        val run = Run()
+        run.seen(0, page(0))
+        run.scroll(300, 0)
+        assertEquals(Decision.NONE, run.seen(400, page(1)).decision)
+    }
+
+    @Test
+    fun `scroll 301 ms after the first scan leaves it to the page identity`() {
+        val run = Run()
+        run.seen(0, page(0))
+        run.scroll(301, 0)
+        assertEquals(Decision.BACK, run.seen(400, page(1)).decision)
+    }
+
     @Test
     fun `positioning scroll that keeps the same page does not close`() {
         val run = Run()

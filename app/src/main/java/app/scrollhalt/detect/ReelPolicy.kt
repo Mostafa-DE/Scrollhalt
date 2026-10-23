@@ -50,8 +50,10 @@ data class ReelPolicy(
 ) {
     /**
      * A reel the user opened. Leaving it sets [swipedAway], and from then on the viewer is
-     * closed until it is gone. Primary signal: the on-screen page [pageKey] is replaced by
-     * another page. Secondary: a scroll of [pagerKey] reports an index other than [startIndex].
+     * closed until it is gone. Signals: a scroll of [pagerKey] reports an index other than
+     * [startIndex], or the on-screen page [pageKey] is replaced by another page after a scroll.
+     * With [startConfirmed] (the index came from Instagram positioning the pager while opening)
+     * only the index counts, since Instagram also replaces the page while laying out the viewer.
      */
     data class ViewerSession(
         val startedAt: Long,
@@ -60,6 +62,7 @@ data class ReelPolicy(
         val startIndex: Int? = null,
         val pageKey: String? = null,
         val swipedAway: Boolean = false,
+        val startConfirmed: Boolean = false,
     )
 
     /**
@@ -131,24 +134,27 @@ data class ReelPolicy(
             origin == ReelOrigin.DM && !settings.allowSingleReel ->
                 base.block(at, Screen.SINGLE_REEL, Decision.BACK, "reel shared in DM, single reels off")
             current == null -> {
-                // Instagram positions the pager while opening, so only scrolls up to this
-                // first scan of the viewer can set the start index.
+                // Instagram positions the pager while opening, so a scroll just before this first
+                // scan of the viewer (or shortly after it, see onPagerScroll) confirms the start index.
                 val recent = base.lastScroll?.takeIf { at - it.atMillis <= OPENING_SCROLL_MS }
-                val session = ViewerSession(at, origin, recent?.pagerKey, recent?.fromIndex, classification.reelPage)
+                val session = ViewerSession(at, origin, recent?.pagerKey, recent?.fromIndex, classification.reelPage, startConfirmed = recent != null)
                 PolicyResult(base.copy(session = session), Decision.NONE, "first reel allowed (from $origin)")
             }
             // Also enforces a swipe whose BACK was held back by the cooldown.
             current.swipedAway -> base.block(at, Screen.SINGLE_REEL, Decision.BACK, "swiped to another reel")
             current.pageKey == null && classification.reelPage != null ->
                 PolicyResult(base.copy(session = current.copy(pageKey = classification.reelPage)), Decision.NONE, "reel page recorded")
-            classification.reelPage != null && classification.reelPage != current.pageKey ->
-                if (base.lastScroll?.let { it.atMillis > current.startedAt } == true) {
+            classification.reelPage != null && classification.reelPage != current.pageKey -> when {
+                // A scroll to another index would already have closed the viewer, so every scroll
+                // since the confirmed start reported the opened reel: Instagram swapped the page.
+                current.startConfirmed ->
+                    PolicyResult(base.copy(session = current.copy(pageKey = classification.reelPage)), Decision.NONE, "page replaced on the opened reel")
+                base.lastScroll?.let { it.atMillis > current.startedAt } == true ->
                     base.copy(session = current.copy(swipedAway = true))
                         .block(at, Screen.SINGLE_REEL, Decision.BACK, "another reel page on screen after a scroll")
-                } else {
-                    // A swipe always scrolls the pager; a page swapped without one is Instagram's own.
-                    PolicyResult(base.copy(session = current.copy(pageKey = classification.reelPage)), Decision.NONE, "page replaced without a scroll")
-                }
+                // A swipe always scrolls the pager; a page swapped without one is Instagram's own.
+                else -> PolicyResult(base.copy(session = current.copy(pageKey = classification.reelPage)), Decision.NONE, "page replaced without a scroll")
+            }
             else -> PolicyResult(base, Decision.NONE, "first reel playing (from ${current.origin})")
         }
     }
@@ -163,8 +169,9 @@ data class ReelPolicy(
         if (!settings.blockingEnabled) return PolicyResult(tracked, Decision.NONE, "blocking disabled")
 
         val start = current.startIndex
+        val positioning = input.atMillis - current.startedAt <= LATE_POSITIONING_MS
         val adopt = { why: String ->
-            val session = current.copy(pagerKey = input.pagerKey, startIndex = index)
+            val session = current.copy(pagerKey = input.pagerKey, startIndex = index, startConfirmed = positioning)
             PolicyResult(tracked.copy(session = session), Decision.NONE, "start index $index ($why)")
         }
         val swiped = { why: String ->
@@ -172,10 +179,10 @@ data class ReelPolicy(
         }
         return when {
             current.swipedAway -> tracked.block(input.atMillis, Screen.SINGLE_REEL, Decision.BACK, "still swiping")
+            start == null && positioning -> adopt("opening")
             start == null && current.pageKey != null ->
                 // The page identity decides on the next scan; the index only becomes the baseline.
                 adopt("page identity decides")
-            start == null && input.atMillis - current.startedAt <= LATE_POSITIONING_MS -> adopt("opening")
             start == null -> swiped("first scroll after the reel opened, index $index")
             input.pagerKey != current.pagerKey -> adopt("different pager")
             index == start -> PolicyResult(tracked, Decision.NONE, "on the opened reel")
@@ -240,7 +247,7 @@ data class ReelPolicy(
         /** A scroll at most this long before the first viewer scan is Instagram positioning the pager. */
         const val OPENING_SCROLL_MS: Long = 1_200
 
-        /** Without a page identity, an unexplained first scroll this soon is still positioning. */
+        /** A scroll at most this long after the first viewer scan is still positioning: no swipe lands that fast. */
         const val LATE_POSITIONING_MS: Long = 300
         const val COOLDOWN_MS: Long = 700
         const val BROKEN_WINDOW_MS: Long = 10_000

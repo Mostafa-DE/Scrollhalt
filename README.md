@@ -125,11 +125,13 @@ Signals:
   is never read);
 - **the reel page on screen**: the identity of the largest on-screen child of the front
   pager, recorded when the viewer opens. A different page after a pager scroll means a
-  swipe (a page swapped without any scroll is Instagram's own and is just recorded);
+  swipe (a page swapped without any scroll is Instagram's own and is just recorded, and so
+  is one swapped while every scroll still reports a confirmed start index);
 - **scroll events from the reel pager** (it reports its current page as `fromIndex`; only
-  the pager in front scrolls, and pagers are told apart by their source node). Only scrolls
-  up to the first scan of the viewer can set the start index; any later different index is
-  a swipe;
+  the pager in front scrolls, and pagers are told apart by their source node). Scrolls up
+  to the first scan of the viewer, or at most 300 ms after it (no swipe lands that fast),
+  are Instagram positioning the pager: their index is the confirmed start index, and any
+  other index is a swipe. When the first scroll comes later, the page identity decides;
 - **window changes of other apps**, only to notice that Instagram is no longer in front
   (package name only). This is why the service has no package filter.
 
