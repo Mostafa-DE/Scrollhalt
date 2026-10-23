@@ -15,6 +15,7 @@ import android.view.accessibility.AccessibilityWindowInfo
 import android.widget.Toast
 import app.scrollhalt.R
 import app.scrollhalt.data.AppSettings
+import app.scrollhalt.data.DeviceClock
 import app.scrollhalt.data.SettingsRepository
 import app.scrollhalt.debug.DebugEntry
 import app.scrollhalt.debug.DebugLog
@@ -28,6 +29,10 @@ import app.scrollhalt.detect.ReelPolicy
 import app.scrollhalt.detect.ScreenClassifier
 import app.scrollhalt.detect.UiNode
 import app.scrollhalt.detect.onScreenIds
+import app.scrollhalt.protect.Clock
+import app.scrollhalt.protect.PauseState
+import app.scrollhalt.protect.ProtectionMode
+import app.scrollhalt.protect.protectionMode
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
@@ -40,18 +45,31 @@ internal const val LOG_TAG: String = "Scrollhalt"
 /**
  * Watches Instagram's view tree, covers the Reels tab button, and leaves reels when they
  * appear. All work runs on the main thread in response to events: no polling, nothing runs
- * while idle. Events from other apps are used only to notice that Instagram is no longer
- * in front (their package name; nothing else is read).
+ * while idle (timers exist only while a retry or a pause is pending). Events from other apps
+ * are used only to notice that Instagram is no longer in front (their package name; nothing
+ * else is read).
  */
 class ScrollhaltService : AccessibilityService() {
     private val handler = Handler(Looper.getMainLooper())
     private val scanRunnable = Runnable { safely("scan") { scan() } }
     private val retryRunnable = Runnable { safely("retry scan") { scan() } }
+    private val pauseEndRunnable = Runnable {
+        safely("pause end") {
+            reconcileProtection()
+            schedulePauseTimers()
+        }
+    }
+    private val headsUpRunnable = Runnable { safely("pause heads-up") { pauseHeadsUp() } }
     private var scanPending = false
     private var scope: CoroutineScope? = null
     private var cover: ReelsTabCover? = null
+    private val clock: Clock by lazy { DeviceClock(this) }
+    private val settingsRepository: SettingsRepository by lazy { SettingsRepository(this) }
 
     private var settings = AppSettings()
+    /** Whether Reels were blocked at the last check; null before the first one. */
+    private var protecting: Boolean? = null
+    private var clearRequested: PauseState? = null
     private var policy = ReelPolicy()
     private var activity: String? = null
     private var inInstagram = false
@@ -65,9 +83,13 @@ class ScrollhaltService : AccessibilityService() {
         val serviceScope = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate)
         scope = serviceScope
         serviceScope.launch {
-            SettingsRepository(this@ScrollhaltService).settings.collect {
+            settingsRepository.settings.collect {
                 settings = it
-                if (!it.blockingEnabled) cover?.hide()
+                safely("settings") {
+                    reconcileProtection()
+                    schedulePauseTimers()
+                    if (!blocking()) cover?.hide()
+                }
             }
         }
         ServiceState.setConnected(true)
@@ -102,6 +124,8 @@ class ScrollhaltService : AccessibilityService() {
     private fun shutdown() {
         handler.removeCallbacks(scanRunnable)
         handler.removeCallbacks(retryRunnable)
+        handler.removeCallbacks(pauseEndRunnable)
+        handler.removeCallbacks(headsUpRunnable)
         scanPending = false
         cover?.hide()
         scope?.cancel()
@@ -110,6 +134,7 @@ class ScrollhaltService : AccessibilityService() {
     }
 
     private fun onInstagramEvent(event: AccessibilityEvent) {
+        reconcileProtection()
         when (event.eventType) {
             AccessibilityEvent.TYPE_VIEW_CLICKED -> onClicked(event)
             AccessibilityEvent.TYPE_VIEW_SCROLLED -> onScrolled(event)
@@ -187,6 +212,7 @@ class ScrollhaltService : AccessibilityService() {
 
     private fun scan() {
         scanPending = false
+        reconcileProtection()
         val root = activeRoot()
         if (root == null) {
             if (verbose()) Log.v(LOG_TAG, "scan: no active window root")
@@ -214,11 +240,60 @@ class ScrollhaltService : AccessibilityService() {
     /** Covers the Reels tab while the tab bar is on screen and no keyboard could be under the cover. */
     private fun updateCover(classification: Classification) {
         val bounds = classification.reelsTabBounds
-        if (settings.blockingEnabled && bounds != null && !keyboardShown()) cover?.show(bounds) else cover?.hide()
+        if (blocking() && bounds != null && !keyboardShown()) cover?.show(bounds) else cover?.hide()
+    }
+
+    private fun mode(): ProtectionMode = protectionMode(settings.blockingEnabled, settings.pause, clock.now())
+
+    /**
+     * Reels are blocked: Block Reels on and no pause running, as of the last
+     * [reconcileProtection], so the policy never acts across a switch it was not told about.
+     */
+    private fun blocking(): Boolean = protecting ?: (mode() == ProtectionMode.PROTECTED)
+
+    /**
+     * Applies a change of [blocking] (a pause starting or ending, Block Reels switched) once,
+     * wherever it is noticed first: the pause timer, a settings change or any Instagram event.
+     * The timer alone is not enough, since Handler time stands still while the phone sleeps.
+     */
+    private fun reconcileProtection() {
+        val now = clock.now()
+        settings.pause?.takeIf { !it.isActive(now) && it != clearRequested }?.let { expired ->
+            clearRequested = expired
+            scope?.launch { settingsRepository.clearPause(expected = expired) }
+        }
+        val active = protectionMode(settings.blockingEnabled, settings.pause, now) == ProtectionMode.PROTECTED
+        val previous = protecting
+        protecting = active
+        if (previous == null || previous == active) return
+        if (active) {
+            log("protection", "-", apply(PolicyInput.ProtectionResumed(now())), always = true)
+            if (inInstagram) scheduleScan()
+        } else {
+            cover?.hide()
+            log("protection", "-", apply(PolicyInput.ProtectionPaused(now())), always = true)
+        }
+    }
+
+    /** Timers for the end of a pause and the heads-up before it; none without a pause. */
+    private fun schedulePauseTimers() {
+        handler.removeCallbacks(pauseEndRunnable)
+        handler.removeCallbacks(headsUpRunnable)
+        val pause = settings.pause?.takeIf { settings.blockingEnabled } ?: return
+        val remaining = pause.remaining(clock.now())
+        if (remaining <= 0) return
+        handler.postDelayed(pauseEndRunnable, remaining)
+        if (remaining > HEADS_UP_MS) handler.postDelayed(headsUpRunnable, remaining - HEADS_UP_MS)
+    }
+
+    private fun pauseHeadsUp() {
+        if (mode() == ProtectionMode.PAUSED && instagramInFront()) {
+            Toast.makeText(this, R.string.toast_resumes_soon, Toast.LENGTH_SHORT).show()
+        }
     }
 
     private fun apply(input: PolicyInput): PolicyResult {
-        val result = policy.reduce(input, PolicySettings(settings.blockingEnabled, settings.allowSingleReel))
+        val result = policy.reduce(input, PolicySettings(blocking(), settings.allowSingleReel))
         policy = result.policy
         result.retryAtMillis?.let(::scheduleRetry)
         return result
@@ -373,5 +448,8 @@ class ScrollhaltService : AccessibilityService() {
     private companion object {
         const val SCAN_DELAY_MS: Long = 100
         const val TOAST_INTERVAL_MS: Long = 5_000
+
+        /** The "blocking resumes" toast comes this long before a pause ends. */
+        const val HEADS_UP_MS: Long = 10_000
     }
 }

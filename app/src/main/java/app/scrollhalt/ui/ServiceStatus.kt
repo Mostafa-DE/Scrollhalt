@@ -5,15 +5,28 @@ import android.content.Context
 import android.content.Intent
 import android.net.Uri
 import android.provider.Settings
+import app.scrollhalt.protect.ProtectionMode
 import app.scrollhalt.service.ScrollhaltService
 
-enum class ProtectionStatus { OFF, ENABLED_NOT_RUNNING, PAUSED, PROTECTING }
+enum class ProtectionStatus {
+    /** Reels are blocked. */
+    ACTIVE,
 
-fun protectionStatus(enabled: Boolean, connected: Boolean, blockingEnabled: Boolean): ProtectionStatus = when {
-    !enabled -> ProtectionStatus.OFF
-    !connected -> ProtectionStatus.ENABLED_NOT_RUNNING
-    !blockingEnabled -> ProtectionStatus.PAUSED
-    else -> ProtectionStatus.PROTECTING
+    /** A timed pause is running. */
+    PAUSED,
+
+    /** Block Reels is switched off. */
+    DISABLED,
+
+    /** The accessibility service is off or not connected: setup needed. */
+    SERVICE_UNAVAILABLE,
+}
+
+fun protectionStatus(enabled: Boolean, connected: Boolean, mode: ProtectionMode): ProtectionStatus = when {
+    !enabled || !connected -> ProtectionStatus.SERVICE_UNAVAILABLE
+    mode == ProtectionMode.DISABLED -> ProtectionStatus.DISABLED
+    mode == ProtectionMode.PAUSED -> ProtectionStatus.PAUSED
+    else -> ProtectionStatus.ACTIVE
 }
 
 /** True when the user has switched Scrollhalt on in Accessibility settings. */

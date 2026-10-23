@@ -35,6 +35,12 @@ sealed interface PolicyInput {
 
     /** The active window is no longer Instagram (home screen, another app, notification shade). */
     data class LeftApp(override val atMillis: Long) : PolicyInput
+
+    /** Blocking stopped (a pause started or Block Reels was switched off). */
+    data class ProtectionPaused(override val atMillis: Long) : PolicyInput
+
+    /** Blocking started again (a pause ended or Block Reels was switched on). */
+    data class ProtectionResumed(override val atMillis: Long) : PolicyInput
 }
 
 data class PolicyResult(

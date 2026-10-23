@@ -6,6 +6,7 @@ import androidx.activity.compose.BackHandler
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -13,13 +14,20 @@ import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.platform.LocalContext
+import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.compose.LifecycleResumeEffect
+import androidx.lifecycle.compose.LocalLifecycleOwner
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import androidx.lifecycle.repeatOnLifecycle
 import app.scrollhalt.BuildConfig
 import app.scrollhalt.data.AppSettings
+import app.scrollhalt.data.DeviceClock
 import app.scrollhalt.data.SettingsRepository
 import app.scrollhalt.debug.DebugLog
+import app.scrollhalt.protect.PauseState
+import app.scrollhalt.protect.protectionMode
 import app.scrollhalt.service.ServiceState
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 
 class MainActivity : ComponentActivity() {
@@ -43,10 +51,32 @@ private fun App(repository: SettingsRepository) {
     val connected by ServiceState.connected.collectAsStateWithLifecycle()
     var enabled by remember { mutableStateOf(isServiceEnabled(context)) }
     var showDebug by rememberSaveable { mutableStateOf(false) }
+    val clock = remember { DeviceClock(context) }
+    var now by remember { mutableStateOf(clock.now()) }
+    val pause = settings.pause
+    val lifecycleOwner = LocalLifecycleOwner.current
 
     LifecycleResumeEffect(Unit) {
         enabled = isServiceEnabled(context)
+        now = clock.now()
         onPauseOrDispose { }
+    }
+
+    // Countdown while a pause runs and the screen is visible; it also clears a pause that
+    // ended while the app was away. No ticking without a pause.
+    LaunchedEffect(pause, lifecycleOwner) {
+        if (pause == null) return@LaunchedEffect
+        lifecycleOwner.repeatOnLifecycle(Lifecycle.State.STARTED) {
+            while (true) {
+                now = clock.now()
+                val remaining = pause.remaining(now)
+                if (remaining <= 0) {
+                    repository.clearPause(expected = pause)
+                    break
+                }
+                delay(remaining % 1_000 + 1)
+            }
+        }
     }
 
     if (showDebug) {
@@ -63,14 +93,21 @@ private fun App(repository: SettingsRepository) {
         )
     } else {
         MainScreen(
-            status = protectionStatus(enabled, connected, settings.blockingEnabled),
+            status = protectionStatus(enabled, connected, protectionMode(settings.blockingEnabled, pause, now)),
             settings = settings,
+            pauseRemainingMillis = pause?.remaining(now) ?: 0,
             versionName = BuildConfig.VERSION_NAME,
             onBlockingChange = { scope.launch { repository.setBlockingEnabled(it) } },
             onAllowSingleReelChange = { scope.launch { repository.setAllowSingleReel(it) } },
+            onStartPause = { minutes ->
+                scope.launch { repository.startPause(PauseState.start(clock.now(), minutes * MILLIS_PER_MINUTE)) }
+            },
+            onResumeNow = { scope.launch { repository.clearPause() } },
             onOpenAccessibility = { context.startActivity(accessibilitySettingsIntent()) },
             onOpenAppInfo = { context.startActivity(appInfoIntent(context)) },
             onOpenDiagnostics = { showDebug = true },
         )
     }
 }
+
+private const val MILLIS_PER_MINUTE: Long = 60_000

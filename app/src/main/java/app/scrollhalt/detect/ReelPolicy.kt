@@ -2,6 +2,8 @@ package app.scrollhalt.detect
 
 import app.scrollhalt.detect.PolicyInput.LeftApp
 import app.scrollhalt.detect.PolicyInput.PagerScrolled
+import app.scrollhalt.detect.PolicyInput.ProtectionPaused
+import app.scrollhalt.detect.PolicyInput.ProtectionResumed
 import app.scrollhalt.detect.PolicyInput.ScreenSeen
 import app.scrollhalt.detect.PolicyInput.ViewClicked
 
@@ -32,6 +34,9 @@ enum class ReelOrigin {
  * (the first observation after the cooldown still shows the same blocked screen) escalates
  * to a stronger one, ending at the launcher. Only if even that fails repeatedly does it
  * pause, because then detection itself is probably broken.
+ *
+ * When protection resumes (a pause ends) while a reel is on screen, that reel finishes:
+ * it plays as an allowed first reel whatever its origin, and the next swipe closes it.
  */
 data class ReelPolicy(
     val session: ViewerSession? = null,
@@ -47,6 +52,10 @@ data class ReelPolicy(
     /** Times [Decision.GLOBAL_HOME] did not leave Instagram, within [BROKEN_WINDOW_MS]. */
     val globalHomeFailures: List<Long> = emptyList(),
     val pausedUntil: Long? = null,
+    /** The last confidently classified screen was a reel viewer (UNKNOWN frames keep it). */
+    val reelOnScreen: Boolean = false,
+    /** Protection resumed with a reel on screen: the next viewer session is allowed. */
+    val finishCurrent: Boolean = false,
 ) {
     /**
      * A reel the user opened. Leaving it sets [swipedAway], and from then on the viewer is
@@ -54,6 +63,7 @@ data class ReelPolicy(
      * [startIndex], or the on-screen page [pageKey] is replaced by another page after a scroll.
      * With [startConfirmed] (the index came from Instagram positioning the pager while opening)
      * only the index counts, since Instagram also replaces the page while laying out the viewer.
+     * A [resumed] session was on screen when protection resumed and plays whatever its origin.
      */
     data class ViewerSession(
         val startedAt: Long,
@@ -63,6 +73,7 @@ data class ReelPolicy(
         val pageKey: String? = null,
         val swipedAway: Boolean = false,
         val startConfirmed: Boolean = false,
+        val resumed: Boolean = false,
     )
 
     /**
@@ -81,8 +92,22 @@ data class ReelPolicy(
         is ScreenSeen -> onScreen(input, settings)
         is ViewClicked -> onClick(input, settings)
         is PagerScrolled -> onPagerScroll(input, settings)
-        is LeftApp -> PolicyResult(copy(session = null, pending = null), Decision.NONE, "left Instagram")
+        is LeftApp -> PolicyResult(
+            copy(session = null, pending = null, reelOnScreen = false, finishCurrent = false),
+            Decision.NONE,
+            "left Instagram",
+        )
+        is ProtectionPaused -> PolicyResult(protectionChanged(finish = false), Decision.NONE, "protection paused")
+        is ProtectionResumed ->
+            PolicyResult(protectionChanged(finish = reelOnScreen), Decision.NONE, if (reelOnScreen) "protection resumed, current reel finishes" else "protection resumed")
     }
+
+    /**
+     * Forgets the reel session and every escalation: an action from before the switch must
+     * neither count as ineffective afterwards nor send anyone to the launcher.
+     */
+    private fun protectionChanged(finish: Boolean): ReelPolicy =
+        copy(session = null, pending = null, globalHomeFailures = emptyList(), pausedUntil = null, finishCurrent = finish)
 
     private fun onClick(input: ViewClicked, settings: PolicySettings): PolicyResult = when {
         !InstagramRules.matches(input.viewId, InstagramRules.REELS_TAB_ID) -> idle(input.atMillis, "click ignored")
@@ -98,10 +123,15 @@ data class ReelPolicy(
 
     private fun onScreen(input: ScreenSeen, settings: PolicySettings): PolicyResult {
         val classification = input.classification
-        val seen = if (classification.tabBarVisible && classification.selectedTab != null) {
+        val tabSeen = if (classification.tabBarVisible && classification.selectedTab != null) {
             copy(lastSelectedTab = classification.selectedTab)
         } else {
             this
+        }
+        val seen = when (classification.screen) {
+            Screen.UNKNOWN -> tabSeen
+            Screen.SINGLE_REEL -> tabSeen.copy(reelOnScreen = true)
+            else -> tabSeen.copy(reelOnScreen = false, finishCurrent = false)
         }
         return when (classification.screen) {
             Screen.UNKNOWN -> seen.idle(input.atMillis, "not confident: reel pager without reel controls")
@@ -128,18 +158,18 @@ data class ReelPolicy(
         val current = base.session
 
         return when {
+            current == null && base.finishCurrent -> PolicyResult(
+                base.copy(session = base.newSession(at, origin, classification, resumed = true), finishCurrent = false),
+                Decision.NONE,
+                "protection resumed, current reel finishes (from $origin)",
+            )
             // A reel already allowed stays allowed even if the remembered origin changes.
             origin == ReelOrigin.EXPLORE && current == null ->
                 base.block(at, Screen.SINGLE_REEL, Decision.BACK, "reel opened from Explore")
-            origin == ReelOrigin.DM && !settings.allowSingleReel ->
+            origin == ReelOrigin.DM && !settings.allowSingleReel && current?.resumed != true ->
                 base.block(at, Screen.SINGLE_REEL, Decision.BACK, "reel shared in DM, single reels off")
-            current == null -> {
-                // Instagram positions the pager while opening, so a scroll just before this first
-                // scan of the viewer (or shortly after it, see onPagerScroll) confirms the start index.
-                val recent = base.lastScroll?.takeIf { at - it.atMillis <= OPENING_SCROLL_MS }
-                val session = ViewerSession(at, origin, recent?.pagerKey, recent?.fromIndex, classification.reelPage, startConfirmed = recent != null)
-                PolicyResult(base.copy(session = session), Decision.NONE, "first reel allowed (from $origin)")
-            }
+            current == null ->
+                PolicyResult(base.copy(session = base.newSession(at, origin, classification)), Decision.NONE, "first reel allowed (from $origin)")
             // Also enforces a swipe whose BACK was held back by the cooldown.
             current.swipedAway -> base.block(at, Screen.SINGLE_REEL, Decision.BACK, "swiped to another reel")
             current.pageKey == null && classification.reelPage != null ->
@@ -157,6 +187,15 @@ data class ReelPolicy(
             }
             else -> PolicyResult(base, Decision.NONE, "first reel playing (from ${current.origin})")
         }
+    }
+
+    /**
+     * Instagram positions the pager while opening, so a scroll just before this first scan of
+     * the viewer (or shortly after it, see onPagerScroll) confirms the start index.
+     */
+    private fun newSession(at: Long, origin: ReelOrigin, classification: Classification, resumed: Boolean = false): ViewerSession {
+        val recent = lastScroll?.takeIf { at - it.atMillis <= OPENING_SCROLL_MS }
+        return ViewerSession(at, origin, recent?.pagerKey, recent?.fromIndex, classification.reelPage, startConfirmed = recent != null, resumed = resumed)
     }
 
     private fun onPagerScroll(input: PagerScrolled, settings: PolicySettings): PolicyResult {

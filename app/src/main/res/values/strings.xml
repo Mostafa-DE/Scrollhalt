@@ -7,14 +7,20 @@
 
     <string name="toast_blocked">Reels blocked</string>
     <string name="toast_tab_hidden">Reels hidden by Scrollhalt</string>
+    <string name="toast_resumes_soon">Reels blocking resumes in 10 s</string>
 
     <string name="menu_more">More options</string>
 
     <string name="status_protecting">Protecting</string>
     <string name="status_protecting_detail">Reels are hidden in Instagram</string>
+    <string name="pause_button">Pause protection</string>
     <string name="status_paused">Paused</string>
-    <string name="status_paused_detail">Tap to resume</string>
-    <string name="status_paused_action">Resume blocking</string>
+    <string name="status_paused_detail">Reels are unrestricted until the timer ends</string>
+    <string name="resume_now">Resume now</string>
+    <string name="countdown">%1$02d:%2$02d</string>
+    <string name="status_disabled">Blocking off</string>
+    <string name="status_disabled_detail">Tap to block Reels again</string>
+    <string name="status_disabled_action">Turn on Block Reels</string>
     <string name="status_setup">Setup needed</string>
     <string name="status_setup_button">Turn on Scrollhalt</string>
 
@@ -28,6 +34,15 @@
     <string name="setting_single_reel_detail">Reels sent to you in DMs</string>
 
     <string name="version_label">v%1$s</string>
+
+    <string name="pause_title">Pause protection</string>
+    <string name="pause_detail">Reels open normally until the timer ends. Usage tracking keeps running.</string>
+    <string name="pause_note">Protection turns back on by itself. You get a heads-up 10 s before.</string>
+    <string name="pause_cancel">Cancel</string>
+    <plurals name="pause_minutes">
+        <item quantity="one">minute</item>
+        <item quantity="other">minutes</item>
+    </plurals>
 
     <string name="how_title">How it works</string>
     <string name="how_tab">The Reels tab is covered so it can\'t be opened.</string>

@@ -25,9 +25,11 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.Button
+import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.FilledTonalButton
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
@@ -49,8 +51,10 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import app.scrollhalt.R
 import app.scrollhalt.data.AppSettings
 
@@ -60,15 +64,19 @@ private val ScreenPadding = 20.dp
 fun MainScreen(
     status: ProtectionStatus,
     settings: AppSettings,
+    pauseRemainingMillis: Long,
     versionName: String,
     onBlockingChange: (Boolean) -> Unit,
     onAllowSingleReelChange: (Boolean) -> Unit,
+    onStartPause: (minutes: Int) -> Unit,
+    onResumeNow: () -> Unit,
     onOpenAccessibility: () -> Unit,
     onOpenAppInfo: () -> Unit,
     onOpenDiagnostics: () -> Unit,
 ) {
     var showHowItWorks by rememberSaveable { mutableStateOf(false) }
-    val setupNeeded = status == ProtectionStatus.OFF || status == ProtectionStatus.ENABLED_NOT_RUNNING
+    var showPauseSheet by rememberSaveable { mutableStateOf(false) }
+    val setupNeeded = status == ProtectionStatus.SERVICE_UNAVAILABLE
 
     Scaffold(containerColor = MaterialTheme.colorScheme.background) { padding ->
         Column(
@@ -80,7 +88,14 @@ fun MainScreen(
             verticalArrangement = Arrangement.spacedBy(16.dp),
         ) {
             Header(onHowItWorks = { showHowItWorks = true }, onDiagnostics = onOpenDiagnostics)
-            HeroCard(status, onResume = { onBlockingChange(true) }, onTurnOn = onOpenAccessibility)
+            HeroCard(
+                status = status,
+                pauseRemainingMillis = pauseRemainingMillis,
+                onPause = { showPauseSheet = true },
+                onResumeNow = onResumeNow,
+                onEnableBlocking = { onBlockingChange(true) },
+                onTurnOn = onOpenAccessibility,
+            )
             AnimatedVisibility(visible = setupNeeded) {
                 Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
                     ActionRow(R.drawable.ic_lock, R.string.setup_restricted_title, R.string.setup_restricted_detail, onOpenAppInfo)
@@ -99,6 +114,15 @@ fun MainScreen(
     }
 
     if (showHowItWorks) HowItWorksSheet(onDismiss = { showHowItWorks = false })
+    if (showPauseSheet && status == ProtectionStatus.ACTIVE) {
+        PauseSheet(
+            onPick = { minutes ->
+                showPauseSheet = false
+                onStartPause(minutes)
+            },
+            onDismiss = { showPauseSheet = false },
+        )
+    }
 }
 
 @Composable
@@ -142,20 +166,27 @@ private fun Header(onHowItWorks: () -> Unit, onDiagnostics: () -> Unit) {
 }
 
 @Composable
-private fun HeroCard(status: ProtectionStatus, onResume: () -> Unit, onTurnOn: () -> Unit) {
+private fun HeroCard(
+    status: ProtectionStatus,
+    pauseRemainingMillis: Long,
+    onPause: () -> Unit,
+    onResumeNow: () -> Unit,
+    onEnableBlocking: () -> Unit,
+    onTurnOn: () -> Unit,
+) {
     val colors = MaterialTheme.colorScheme
     val (container, content) = when (status) {
-        ProtectionStatus.PROTECTING -> colors.primaryContainer to colors.onPrimaryContainer
+        ProtectionStatus.ACTIVE -> colors.primaryContainer to colors.onPrimaryContainer
         ProtectionStatus.PAUSED -> colors.secondaryContainer to colors.onSecondaryContainer
-        ProtectionStatus.OFF, ProtectionStatus.ENABLED_NOT_RUNNING -> colors.surfaceVariant to colors.onSurface
+        ProtectionStatus.DISABLED, ProtectionStatus.SERVICE_UNAVAILABLE -> colors.surfaceVariant to colors.onSurface
     }
     val containerColor by animateColorAsState(container, label = "hero container")
     val contentColor by animateColorAsState(content, label = "hero content")
-    val paused = status == ProtectionStatus.PAUSED
-    val (icon, title, detail) = when (status) {
-        ProtectionStatus.PROTECTING -> Triple(R.drawable.ic_shield_check, R.string.status_protecting, R.string.status_protecting_detail)
-        ProtectionStatus.PAUSED -> Triple(R.drawable.ic_pause, R.string.status_paused, R.string.status_paused_detail)
-        ProtectionStatus.OFF, ProtectionStatus.ENABLED_NOT_RUNNING -> Triple(R.drawable.ic_power, R.string.status_setup, null)
+    val disabled = status == ProtectionStatus.DISABLED
+    val icon = when (status) {
+        ProtectionStatus.ACTIVE -> R.drawable.ic_shield_check
+        ProtectionStatus.PAUSED -> R.drawable.ic_pause
+        ProtectionStatus.DISABLED, ProtectionStatus.SERVICE_UNAVAILABLE -> R.drawable.ic_power
     }
 
     Surface(
@@ -167,10 +198,10 @@ private fun HeroCard(status: ProtectionStatus, onResume: () -> Unit, onTurnOn: (
             .heightIn(min = 200.dp)
             .clip(MaterialTheme.shapes.large)
             .clickable(
-                enabled = paused,
-                onClickLabel = stringResource(R.string.status_paused_action),
+                enabled = disabled,
+                onClickLabel = stringResource(R.string.status_disabled_action),
                 role = Role.Button,
-                onClick = onResume,
+                onClick = onEnableBlocking,
             ),
     ) {
         Column(
@@ -185,18 +216,68 @@ private fun HeroCard(status: ProtectionStatus, onResume: () -> Unit, onTurnOn: (
                 Icon(painterResource(icon), contentDescription = null, modifier = Modifier.size(36.dp))
             }
             Spacer(Modifier.height(16.dp))
-            Text(stringResource(title), style = MaterialTheme.typography.headlineSmall)
-            if (detail != null) {
-                Spacer(Modifier.height(4.dp))
-                Text(stringResource(detail), style = MaterialTheme.typography.bodyMedium, color = contentColor.copy(alpha = 0.8f))
-            } else {
-                Spacer(Modifier.height(16.dp))
-                Button(onClick = onTurnOn, shape = MaterialTheme.shapes.medium, modifier = Modifier.heightIn(min = 48.dp)) {
-                    Text(stringResource(R.string.status_setup_button))
+            when (status) {
+                ProtectionStatus.ACTIVE -> {
+                    HeroText(R.string.status_protecting, R.string.status_protecting_detail, contentColor)
+                    Spacer(Modifier.height(16.dp))
+                    FilledTonalButton(
+                        onClick = onPause,
+                        colors = ButtonDefaults.filledTonalButtonColors(containerColor = contentColor.copy(alpha = 0.16f), contentColor = contentColor),
+                        modifier = Modifier.heightIn(min = 48.dp),
+                    ) {
+                        Icon(painterResource(R.drawable.ic_pause), contentDescription = null, modifier = Modifier.size(18.dp))
+                        Spacer(Modifier.size(8.dp))
+                        Text(stringResource(R.string.pause_button))
+                    }
+                }
+                ProtectionStatus.PAUSED -> {
+                    Text(stringResource(R.string.status_paused), style = MaterialTheme.typography.titleMedium)
+                    Text(
+                        countdown(pauseRemainingMillis),
+                        style = MaterialTheme.typography.displayMedium.copy(fontFeatureSettings = "tnum"),
+                        fontSize = 48.sp,
+                        fontWeight = FontWeight.SemiBold,
+                    )
+                    Text(
+                        stringResource(R.string.status_paused_detail),
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = contentColor.copy(alpha = 0.8f),
+                        textAlign = TextAlign.Center,
+                    )
+                    Spacer(Modifier.height(16.dp))
+                    Button(
+                        onClick = onResumeNow,
+                        colors = ButtonDefaults.buttonColors(containerColor = colors.secondary, contentColor = colors.onSecondary),
+                        modifier = Modifier.heightIn(min = 48.dp),
+                    ) {
+                        Text(stringResource(R.string.resume_now), fontWeight = FontWeight.SemiBold)
+                    }
+                }
+                ProtectionStatus.DISABLED -> HeroText(R.string.status_disabled, R.string.status_disabled_detail, contentColor)
+                ProtectionStatus.SERVICE_UNAVAILABLE -> {
+                    Text(stringResource(R.string.status_setup), style = MaterialTheme.typography.headlineSmall)
+                    Spacer(Modifier.height(16.dp))
+                    Button(onClick = onTurnOn, shape = MaterialTheme.shapes.medium, modifier = Modifier.heightIn(min = 48.dp)) {
+                        Text(stringResource(R.string.status_setup_button))
+                    }
                 }
             }
         }
     }
+}
+
+@Composable
+private fun HeroText(@StringRes title: Int, @StringRes detail: Int, contentColor: Color) {
+    Text(stringResource(title), style = MaterialTheme.typography.headlineSmall)
+    Spacer(Modifier.height(4.dp))
+    Text(stringResource(detail), style = MaterialTheme.typography.bodyMedium, color = contentColor.copy(alpha = 0.8f), textAlign = TextAlign.Center)
+}
+
+/** mm:ss, rounded up so the display reaches 00:00 only when the pause ends. */
+@Composable
+private fun countdown(remainingMillis: Long): String {
+    val seconds = (remainingMillis.coerceAtLeast(0) + 999) / 1_000
+    return stringResource(R.string.countdown, seconds / 60, seconds % 60)
 }
 
 @Composable
