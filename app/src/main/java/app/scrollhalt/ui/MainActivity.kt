@@ -74,6 +74,10 @@ private fun App(repository: SettingsRepository, statsRepository: StatsRepository
     // ended while the app was away. No ticking without a pause.
     LaunchedEffect(pause, lifecycleOwner) {
         if (pause == null) return@LaunchedEffect
+        if (!pause.isOnBootOf(clock.now())) {
+            repository.rebasePause(clock.now())
+            return@LaunchedEffect
+        }
         lifecycleOwner.repeatOnLifecycle(Lifecycle.State.STARTED) {
             while (true) {
                 now = clock.now()

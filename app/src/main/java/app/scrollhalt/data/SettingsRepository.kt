@@ -9,6 +9,7 @@ import androidx.datastore.preferences.core.edit
 import androidx.datastore.preferences.core.intPreferencesKey
 import androidx.datastore.preferences.core.longPreferencesKey
 import androidx.datastore.preferences.preferencesDataStore
+import app.scrollhalt.protect.Moment
 import app.scrollhalt.protect.PauseState
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.map
@@ -44,11 +45,14 @@ class SettingsRepository(context: Context) {
     }
 
     suspend fun startPause(pause: PauseState) {
-        store.edit {
-            it[PAUSE_END_WALL] = pause.endWallMillis
-            it[PAUSE_END_ELAPSED] = pause.endElapsedMillis
-            it[PAUSE_BOOT_COUNT] = pause.bootCount
-            it[PAUSE_DURATION] = pause.durationMillis
+        store.edit { it.putPause(pause) }
+    }
+
+    /** A pause stored on an earlier boot moves onto this boot's clocks, once (see [PauseState.rebased]). */
+    suspend fun rebasePause(now: Moment) {
+        store.edit { prefs ->
+            val pause = pauseOf(prefs)
+            if (pause != null && !pause.isOnBootOf(now)) prefs.putPause(pause.rebased(now))
         }
     }
 
@@ -70,7 +74,15 @@ class SettingsRepository(context: Context) {
         val endElapsed = prefs[PAUSE_END_ELAPSED] ?: return null
         val bootCount = prefs[PAUSE_BOOT_COUNT] ?: return null
         val duration = prefs[PAUSE_DURATION] ?: return null
-        return PauseState(endWall, endElapsed, bootCount, duration)
+        return PauseState(endWall, endElapsed, bootCount, duration, prefs[PAUSE_START_WALL] ?: endWall - duration)
+    }
+
+    private fun MutablePreferences.putPause(pause: PauseState) {
+        this[PAUSE_END_WALL] = pause.endWallMillis
+        this[PAUSE_END_ELAPSED] = pause.endElapsedMillis
+        this[PAUSE_BOOT_COUNT] = pause.bootCount
+        this[PAUSE_DURATION] = pause.durationMillis
+        this[PAUSE_START_WALL] = pause.startedWallMillis
     }
 
     private fun MutablePreferences.removePause() {
@@ -78,6 +90,7 @@ class SettingsRepository(context: Context) {
         remove(PAUSE_END_ELAPSED)
         remove(PAUSE_BOOT_COUNT)
         remove(PAUSE_DURATION)
+        remove(PAUSE_START_WALL)
     }
 
     private companion object {
@@ -88,5 +101,6 @@ class SettingsRepository(context: Context) {
         val PAUSE_END_ELAPSED: Preferences.Key<Long> = longPreferencesKey("pauseEndElapsed")
         val PAUSE_BOOT_COUNT: Preferences.Key<Int> = intPreferencesKey("pauseBootCount")
         val PAUSE_DURATION: Preferences.Key<Long> = longPreferencesKey("pauseDuration")
+        val PAUSE_START_WALL: Preferences.Key<Long> = longPreferencesKey("pauseStartWall")
     }
 }

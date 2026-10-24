@@ -2,6 +2,7 @@ package app.scrollhalt.protect
 
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
+import org.junit.Assert.assertSame
 import org.junit.Assert.assertTrue
 import org.junit.Test
 import java.time.ZoneId
@@ -77,6 +78,51 @@ class PauseStateTest {
         val pause = PauseState.start(unknownBoot, fiveMinutes)
         val rebooted = Moment(elapsedMillis = 1_000, wallMillis = start.wallMillis + 6 * 60_000, bootCount = -1, zone = zone)
         assertFalse(pause.isActive(rebooted))
+    }
+
+    @Test
+    fun `after a reboot with the clock set back the rebased pause ends after its remaining time`() {
+        // Codex P2: the cap was applied again on every call, so the pause lasted until the old
+        // wall-clock deadline (an hour and five minutes here).
+        val pause = PauseState.start(start, fiveMinutes)
+        val booted = Moment(elapsedMillis = 10_000, wallMillis = start.wallMillis - 3_600_000, bootCount = 8, zone = zone)
+        val rebased = pause.rebased(booted)
+        assertTrue(rebased.isOnBootOf(booted))
+        assertEquals(fiveMinutes, rebased.remaining(booted))
+        assertEquals(60_000L, rebased.remaining(later(4 * 60_000, booted)))
+        assertFalse(rebased.isActive(later(fiveMinutes, booted)))
+    }
+
+    @Test
+    fun `a rebase keeps what remained and the identity of the pause`() {
+        val pause = PauseState.start(start, fiveMinutes)
+        val booted = Moment(elapsedMillis = 10_000, wallMillis = start.wallMillis + 2 * 60_000, bootCount = 8, zone = zone)
+        val rebased = pause.rebased(booted)
+        assertEquals(3 * 60_000L, rebased.remaining(booted))
+        assertEquals(pause.startedWallMillis, rebased.startedWallMillis)
+        assertEquals(fiveMinutes, rebased.durationMillis)
+        assertEquals(8, rebased.bootCount)
+    }
+
+    @Test
+    fun `a pause is not rebased on its own boot`() {
+        val pause = PauseState.start(start, fiveMinutes)
+        assertTrue(pause.isOnBootOf(later(60_000)))
+        assertSame(pause, pause.rebased(later(60_000)))
+    }
+
+    @Test
+    fun `a pause that ended before the reboot stays ended when rebased`() {
+        val pause = PauseState.start(start, fiveMinutes)
+        val booted = Moment(elapsedMillis = 10_000, wallMillis = start.wallMillis + 9 * 60_000, bootCount = 8, zone = zone)
+        assertFalse(pause.rebased(booted).isActive(booted))
+    }
+
+    @Test
+    fun `a stored pause without a start is identified by its end minus its duration`() {
+        val stored = PauseState(endWallMillis = 900_000, endElapsedMillis = 5_000, bootCount = 1, durationMillis = 300_000)
+        assertEquals(600_000L, stored.startedWallMillis)
+        assertEquals(start.wallMillis, PauseState.start(start, fiveMinutes).startedWallMillis)
     }
 
     @Test

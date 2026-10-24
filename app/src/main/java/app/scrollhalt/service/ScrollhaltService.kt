@@ -106,6 +106,7 @@ class ScrollhaltService : AccessibilityService() {
     /** Whether Reels were blocked at the last check; null before the first one. */
     private var protecting: Boolean? = null
     private var clearRequested: PauseState? = null
+    private var rebaseRequested: PauseState? = null
     private var policy = ReelPolicy()
     private var activity: String? = null
     private var inInstagram = false
@@ -364,6 +365,10 @@ class ScrollhaltService : AccessibilityService() {
             clearRequested = expired
             scope?.launch { settingsRepository.clearPause(expected = expired) }
         }
+        settings.pause?.takeIf { it.isActive(now) && !it.isOnBootOf(now) && it != rebaseRequested }?.let { stale ->
+            rebaseRequested = stale
+            scope?.launch { settingsRepository.rebasePause(now) }
+        }
         val mode = protectionMode(settings.blockingEnabled, settings.pause, now)
         stats.update { viewerMode(it, mode) }
         if (settingsLoaded) trackPause(now, mode)
@@ -387,7 +392,7 @@ class ScrollhaltService : AccessibilityService() {
             if (pause == null) {
                 pauseEnded(now)
             } else {
-                pauseStarted(now, pause.endWallMillis - pause.durationMillis, Mark(pause.endElapsedMillis, pause.endWallMillis, pause.bootCount))
+                pauseStarted(now, pause.startedWallMillis, Mark(pause.endElapsedMillis, pause.endWallMillis, pause.bootCount))
             }
         }
         if (changed) stats.write()
