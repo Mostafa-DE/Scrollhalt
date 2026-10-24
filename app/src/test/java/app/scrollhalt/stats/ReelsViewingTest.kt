@@ -106,6 +106,28 @@ class ReelsViewingTest {
     }
 
     @Test
+    fun `a positioning scroll just before the viewer is its baseline`() {
+        // Codex 8: the scroll came before the first classification and was dropped, so the same
+        // index later counted as another reel.
+        val stats = StatsState()
+            .viewerScrolled(clock.now(), "w:pager", 0)
+            .viewerSeen(clock.advance(100), reel, paused)
+            .viewerScrolled(clock.seconds(5), "w:pager", 0)
+            .viewerGone(clock.seconds(1))
+        assertEquals(1, stats.day(OCT_24).reels.watched)
+    }
+
+    @Test
+    fun `an old scroll is not the baseline of a new viewer`() {
+        val stats = StatsState()
+            .viewerScrolled(clock.now(), "w:pager", 0)
+            .viewerSeen(clock.seconds(5), reel, paused)
+            .viewerScrolled(clock.seconds(5), "w:pager", 0)
+            .viewerGone(clock.seconds(1))
+        assertEquals(2, stats.day(OCT_24).reels.watched)
+    }
+
+    @Test
     fun `another pager starts a new baseline`() {
         val stats = StatsState()
             .viewerSeen(clock.now(), reelsTab, paused)

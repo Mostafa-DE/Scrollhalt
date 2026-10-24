@@ -1,6 +1,7 @@
 package app.scrollhalt.stats
 
 import app.scrollhalt.detect.Classification
+import app.scrollhalt.detect.ReelPolicy
 import app.scrollhalt.detect.Screen
 import app.scrollhalt.protect.Moment
 import app.scrollhalt.protect.ProtectionMode
@@ -41,8 +42,9 @@ fun StatsState.viewerSeen(now: Moment, classification: Classification, mode: Pro
  * positioning scroll was missed and this is the user's swipe).
  */
 fun StatsState.viewerScrolled(now: Moment, pagerKey: String, index: Int): StatsState {
-    val open = live.viewer ?: return this
-    if (index < 0 || (pagerKey == open.pagerKey && index == open.index)) return this
+    if (index < 0) return this
+    val open = live.viewer ?: return copy(live = live.copy(lastScroll = ScrollMark(pagerKey, index, now.mark())))
+    if (pagerKey == open.pagerKey && index == open.index) return this
     val swipe = when {
         open.pagerKey == null -> settled(open, now)
         pagerKey != open.pagerKey -> false
@@ -90,9 +92,19 @@ fun StatsState.countViewer(now: Moment): StatsState {
     return copy(days = counted, live = live.copy(viewer = viewer.copy(countedUntil = now.mark())))
 }
 
+/** A scroll just before the viewer (Instagram positioning the pager) is its baseline, as in [ReelPolicy]. */
 private fun StatsState.openViewer(now: Moment, kind: ViewerKind, mode: ProtectionMode, page: String?): StatsState {
-    val viewer = OpenViewer(kind, startedAt = now.mark(), countedUntil = now.mark(), mode = mode, page = page)
-    return copy(live = live.copy(viewer = viewer))
+    val scroll = live.lastScroll?.takeIf { millisBetween(it.at, now.mark()) <= ReelPolicy.OPENING_SCROLL_MS }
+    val viewer = OpenViewer(
+        kind,
+        startedAt = now.mark(),
+        countedUntil = now.mark(),
+        mode = mode,
+        pagerKey = scroll?.pagerKey,
+        index = scroll?.index,
+        page = page,
+    )
+    return copy(live = live.copy(viewer = viewer, lastScroll = null))
 }
 
 /** Another page on screen. Only counts when the pager reports no indexes (they count in [viewerScrolled]). */

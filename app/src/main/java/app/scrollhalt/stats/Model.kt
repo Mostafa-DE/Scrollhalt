@@ -103,6 +103,8 @@ data class LiveRecord(
     /** The pause whose start was counted; its time is counted when it ends. */
     val openPause: OpenPause? = null,
     val attempts: AttemptMarks = AttemptMarks(),
+    /** The last reel pager scroll while no viewer was open: Instagram positions the pager first. */
+    val lastScroll: ScrollMark? = null,
 )
 
 /** An Instagram session. Time is counted up to [countedUntil]; null while Instagram is away. */
@@ -142,6 +144,10 @@ data class OpenViewer(
  */
 @Serializable
 data class OpenPause(val id: Long, val countedUntil: Mark, val end: Mark)
+
+/** A reel pager scroll: its pager, the page index it reported and when. */
+@Serializable
+data class ScrollMark(val pagerKey: String, val index: Int, val at: Mark)
 
 /** Attempts still waiting for their action or confirmation, and the last Reels tab attempt. */
 @Serializable
