@@ -168,6 +168,33 @@ class ReelPolicyEventsTest {
     }
 
     @Test
+    fun `an attempt stuck through the detection pause counts once`() {
+        // Codex 6: after the launcher failed 3 times the pause cleared the attempt, and the same
+        // Reels tab screen became a new attempt (and a new launcher trip) every cycle.
+        val run = Run()
+        val decisions = (0L..30_000L step 700L).map { run.seen(it, reelsTab).decision }
+        assertEquals(1, run.events.count { it is Attempt })
+        assertEquals(1, run.events.count { it == SentToLauncher })
+        assertTrue(decisions.count { it == Decision.GLOBAL_HOME } > 3)
+    }
+
+    @Test
+    fun `leaving after the detection pause confirms the stuck attempt`() {
+        val run = Run()
+        (0L..3_500L step 700L).forEach { run.seen(it, reelsTab) }
+        assertEquals(listOf<PolicyEvent>(Confirmed(BlockCategory.REELS_TAB)), run.seen(5_000, feed).events)
+        assertEquals(listOf<PolicyEvent>(Attempt(BlockCategory.REELS_TAB)), run.seen(14_000, reelsTab).events)
+    }
+
+    @Test
+    fun `a tap during the detection pause is a new attempt`() {
+        val run = Run()
+        (0L..3_500L step 700L).forEach { run.seen(it, reelsTab) }
+        run.click(5_000, "clips_tab")
+        assertEquals(listOf<PolicyEvent>(Attempt(BlockCategory.REELS_TAB)), run.seen(13_500, reelsTab).events)
+    }
+
+    @Test
     fun `leaving instagram after the launcher confirms`() {
         val run = Run()
         run.seen(0, reelsTab)

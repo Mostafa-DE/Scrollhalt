@@ -53,6 +53,8 @@ data class ReelPolicy(
     /** Times [Decision.GLOBAL_HOME] did not leave Instagram, within [BROKEN_WINDOW_MS]. */
     val globalHomeFailures: List<Long> = emptyList(),
     val pausedUntil: Long? = null,
+    /** The attempt that led to the detection pause: the same blocked screen afterwards continues it. */
+    val stuckAttempt: PendingAction? = null,
     /** The reel viewer of the last confident scan (UNKNOWN frames keep it), for a resumed session. */
     val viewerOnScreen: ViewerOnScreen? = null,
 ) {
@@ -83,7 +85,8 @@ data class ReelPolicy(
     /**
      * An action taken against [target]. [base] is the first rung of its escalation ladder,
      * [last] the action actually taken, [streak] how many earlier actions were ineffective,
-     * [category] what the attempt was (null for one the statistics do not count).
+     * [category] what the attempt was (null for one the statistics do not count), [launched]
+     * whether the attempt already went to the launcher.
      */
     data class PendingAction(
         val target: Screen,
@@ -92,6 +95,7 @@ data class ReelPolicy(
         val streak: Int,
         val actedAt: Long,
         val category: BlockCategory? = null,
+        val launched: Boolean = false,
     )
 
     fun reduce(input: PolicyInput, settings: PolicySettings): PolicyResult = when (input) {
@@ -99,10 +103,10 @@ data class ReelPolicy(
         is ViewClicked -> onClick(input, settings)
         is PagerScrolled -> onPagerScroll(input, settings)
         is LeftApp -> PolicyResult(
-            copy(session = null, pending = null, viewerOnScreen = null),
+            copy(session = null, pending = null, stuckAttempt = null, viewerOnScreen = null),
             Decision.NONE,
             "left Instagram",
-            events = pending.confirmation(),
+            events = (pending ?: stuckAttempt).confirmation(),
         )
         is ProtectionPaused -> PolicyResult(protectionChanged(), Decision.NONE, "protection paused")
         is ProtectionResumed -> {
@@ -117,7 +121,7 @@ data class ReelPolicy(
      * neither count as ineffective afterwards nor send anyone to the launcher.
      */
     private fun protectionChanged(): ReelPolicy =
-        copy(session = null, pending = null, globalHomeFailures = emptyList(), pausedUntil = null)
+        copy(session = null, pending = null, stuckAttempt = null, globalHomeFailures = emptyList(), pausedUntil = null)
 
     /**
      * The reel on screen when protection resumes keeps playing. Resuming is not a new opening:
@@ -146,7 +150,7 @@ data class ReelPolicy(
             // A tap on the Reels tab after our last action is a new attempt by the user, not
             // proof that the action failed: start the ladder again instead of escalating.
             val fresh = pending?.takeIf { it.target == Screen.REELS_TAB && input.atMillis > it.actedAt } != null
-            copy(session = null, pending = if (fresh) null else pending)
+            copy(session = null, pending = if (fresh) null else pending, stuckAttempt = null)
                 .block(input.atMillis, Screen.REELS_TAB, Decision.GO_HOME, "Reels tab clicked", BlockCategory.REELS_TAB)
         }
     }
@@ -169,16 +173,16 @@ data class ReelPolicy(
         return when (classification.screen) {
             Screen.UNKNOWN -> seen.idle(input.atMillis, "not confident: reel pager without reel controls")
             Screen.DM, Screen.EXPLORE_GRID, Screen.PROFILE, Screen.OTHER -> PolicyResult(
-                seen.copy(session = null, pending = null, lastSurface = classification.screen),
+                seen.copy(session = null, pending = null, stuckAttempt = null, lastSurface = classification.screen),
                 Decision.NONE,
                 "on ${classification.screen}",
-                events = pending.confirmation(),
+                events = (pending ?: stuckAttempt).confirmation(),
             )
             Screen.REELS_TAB -> {
                 val resumed = seen.session?.takeIf { it.reelsTab }
                 when {
                     !settings.blockingEnabled ->
-                        PolicyResult(seen.copy(session = null, pending = null), Decision.NONE, "Reels tab, blocking disabled")
+                        PolicyResult(seen.copy(session = null, pending = null, stuckAttempt = null), Decision.NONE, "Reels tab, blocking disabled")
                     // Also enforces a swipe whose Home tap was held back by the cooldown.
                     resumed?.swipedAway == true ->
                         seen.block(input.atMillis, Screen.REELS_TAB, Decision.GO_HOME, "swiped on the Reels tab", BlockCategory.NEXT_REEL)
@@ -192,10 +196,10 @@ data class ReelPolicy(
     }
 
     private fun onReel(at: Long, classification: Classification, settings: PolicySettings): PolicyResult {
-        if (!settings.blockingEnabled) return PolicyResult(copy(pending = null), Decision.NONE, "blocking disabled")
+        if (!settings.blockingEnabled) return PolicyResult(copy(pending = null, stuckAttempt = null), Decision.NONE, "blocking disabled")
         // An action against the Reels tab that led here worked: the Reels tab is gone.
-        val left = pending?.takeIf { it.target != Screen.SINGLE_REEL }
-        val base = if (left == null) this else copy(pending = null)
+        val left = (pending ?: stuckAttempt)?.takeIf { it.target != Screen.SINGLE_REEL }
+        val base = if (left == null) this else copy(pending = null, stuckAttempt = null)
         return base.onReelInFront(at, classification, settings).withEvents(left.confirmation())
     }
 
@@ -302,7 +306,7 @@ data class ReelPolicy(
         val homeFailed = previous?.last == Decision.GLOBAL_HOME
         val failures = globalHomeFailures.filter { at - it < BROKEN_WINDOW_MS } + listOfNotNull(at.takeIf { homeFailed })
         if (homeFailed && failures.size >= MAX_GLOBAL_HOME_FAILURES) {
-            val pausedPolicy = copy(pending = null, globalHomeFailures = emptyList(), pausedUntil = at + PAUSE_MS)
+            val pausedPolicy = copy(pending = null, stuckAttempt = previous, globalHomeFailures = emptyList(), pausedUntil = at + PAUSE_MS)
             val reason = "detection may be broken: Home did not leave Instagram $MAX_GLOBAL_HOME_FAILURES times in 10 s, pausing 10 s"
             return PolicyResult(pausedPolicy, Decision.NONE, reason, retryAtMillis = at + PAUSE_MS)
         }
@@ -310,17 +314,22 @@ data class ReelPolicy(
         val streak = if (previous == null) 0 else previous.streak + 1
         val ladder = ladder(startWith)
         val decision = ladder[minOf(streak, ladder.lastIndex)]
-        val attempt = if (previous == null) category else previous.category
+        // After the detection pause the ladder starts over, but it is still the same attempt.
+        val continued = stuckAttempt?.takeIf { previous == null && it.target == target && it.base == startWith }
+        val earlier = previous ?: continued
+        val attempt = if (earlier == null) category else earlier.category
+        val launchedBefore = earlier?.launched == true
         val acted = copy(
-            pending = PendingAction(target, startWith, decision, streak, at, attempt),
+            pending = PendingAction(target, startWith, decision, streak, at, attempt, launchedBefore || decision == Decision.GLOBAL_HOME),
+            stuckAttempt = null,
             lastActionAt = at,
             globalHomeFailures = failures,
             pausedUntil = null,
         )
         val reason = if (previous == null) why else "$why; ${previous.last} ineffective (streak $streak)"
         val events = listOfNotNull(
-            attempt?.takeIf { previous == null }?.let(PolicyEvent::Attempt),
-            PolicyEvent.SentToLauncher.takeIf { decision == Decision.GLOBAL_HOME && previous?.last != Decision.GLOBAL_HOME },
+            attempt?.takeIf { earlier == null }?.let(PolicyEvent::Attempt),
+            PolicyEvent.SentToLauncher.takeIf { decision == Decision.GLOBAL_HOME && !launchedBefore },
         )
         return PolicyResult(acted, decision, "$reason: $decision", retryAtMillis = at + COOLDOWN_MS, events = events)
     }
