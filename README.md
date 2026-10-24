@@ -13,7 +13,12 @@ Stories, DMs, profiles, Explore and search all work as normal.
   Swiping to the next reel closes the viewer.
 - Reels opened from the **Explore grid** are closed at once; search, results and
   profiles found by search keep working.
-- No permissions, no internet access, no data stored or sent. The accessibility
+- **Pause protection** for 1, 5, 10 or 15 minutes: Reels open normally until the timer
+  ends, then blocking turns back on by itself (with a heads-up toast 10 s before).
+- A **usage dashboard**: how often and how long Instagram was open today, estimated Reels
+  viewing time, Reels watched, blocked attempts, and a 7-day chart.
+- No permissions, no internet access, nothing sent anywhere. Usage statistics stay in an
+  app-private file on the phone for 30 days and are not backed up. The accessibility
   service reads view ids (internal names like `clips_viewer_view_pager`), never
   text, captions, usernames or messages.
 
@@ -38,9 +43,9 @@ Coverage report for the unit tests (JaCoCo, built into AGP):
 # app/build/reports/coverage/test/debug/index.html
 ```
 
-Toolchain: AGP 9.4.1 (built-in Kotlin), Gradle 9.8.2, Kotlin 2.4.21, Compose BOM
-2026.09.00 (Material 3 1.4.0), DataStore 1.2.1. compileSdk 37, targetSdk 36,
-minSdk 28.
+Toolchain: AGP 9.4.1 (built-in Kotlin), Gradle 9.8.2, Kotlin 2.4.21 with the
+serialization plugin, Compose BOM 2026.09.00 (Material 3 1.4.0), DataStore 1.3.0,
+kotlinx.serialization 1.12.0. compileSdk 37, targetSdk 36, minSdk 28.
 
 ## Install over wireless adb
 
@@ -75,9 +80,9 @@ Scrollhalt accessibility service again, including **Allow restricted settings** 
    to step 2.
 4. **Samsung battery**: Settings > Battery > Background usage limits >
    **Never sleeping apps** > add Scrollhalt. Otherwise One UI may stop the service.
-5. The status card in Scrollhalt shows **Protecting** when everything is set.
-   "Enabled, not running" means Android has the service switched on but it is not
-   connected; toggle it off and on.
+5. The status card in Scrollhalt shows **Protecting** when everything is set. If it
+   shows **Setup needed** although the switch is on, Android has the service enabled
+   but not connected; toggle it off and on.
 
 ## How detection works
 
@@ -163,6 +168,66 @@ Flow:
    (id, visible/selected flags, bounds) and every click; `setprop log.tag.Scrollhalt ""`
    turns that off.
 
+## Pause and protection states
+
+The status card shows one of four states: **Protecting** (Block Reels on), **Paused**
+(a timed pause runs, with a countdown and **Resume now**), **Blocking off** (the Block
+Reels switch is off; tap the card to turn it on) and **Setup needed** (the accessibility
+service is off or not connected).
+
+- **Pause protection** on the Protecting card opens a sheet with 1, 5, 10 and 15 minutes.
+  The pause is stored with its wall-clock end, its `elapsedRealtime` end and the boot
+  count. In the same boot elapsed time decides, so changing the clock does not shorten or
+  extend it; after a reboot the wall clock decides and the remaining time is capped at
+  the chosen duration.
+- The service ends the pause with a timer and also checks on every Instagram event and
+  whenever the app comes to the front. No exact-alarm permission is used.
+- Switching Block Reels off during a pause cancels the pause.
+- If a reel is on screen when the pause ends, it finishes: it plays as an allowed first
+  reel whatever it was opened from, and the next swipe closes it. If the Reels tab is on
+  screen, Scrollhalt taps Home at once. Neither the start nor the end of a pause can make
+  Scrollhalt escalate to the launcher.
+
+## Usage statistics: how they are measured
+
+Everything is computed on the phone by plain-Kotlin reducers in
+`app/src/main/java/app/scrollhalt/stats/` (unit tested) and stored as JSON in an
+app-private DataStore file: one summary per day for 30 days, plus what is in progress.
+There is no per-event history. Durations use `elapsedRealtime`; days are local calendar
+days, and time over midnight is split between the two days.
+
+- **Instagram opened / sessions**: a session starts when Instagram comes to the front;
+  screens inside Instagram never count. It ends when another app or the launcher comes to
+  the front, or the screen goes off. Coming back within 10 s continues the same session
+  (no new opening; the seconds away are not counted). The keyboard, the notification
+  shade, Quick Settings, the volume panel and permission dialogs do not end a session,
+  and their time counts as Instagram time. A session over midnight counts as a session
+  on both days; its opening counts on the first.
+- **Instagram time**: total, average per session and longest session of the day.
+- **Reels viewing (estimated)**: time while the Reels tab or a single reel viewer is on
+  screen, whether blocking is on, paused or off, split by those three modes and by Reels
+  tab vs single reels (DM, feed, profile, Explore). A viewer on screen is not proof that a
+  video played. Viewers shorter than 1 s add time but do not count as viewing sessions.
+- **Reels watched**: the reel a viewer opened on, plus every swipe to another reel that
+  was not blocked (a new page index from the pager, or another page on screen).
+- **Blocked today**, per category, each as detected, action taken (Back, Home or the
+  launcher was pressed and the press succeeded) and confirmed (the next screen was no
+  longer the blocked one). Retries of the same attempt are never counted again.
+  - Reels tab: taps on the cover (one attempt per second of tapping; a tap on the cover
+    is acted on and confirmed by definition) and Instagram opening on the Reels tab.
+  - Explore Reels: one per Explore reel closed.
+  - Next-Reel swipes: one per allowed reel that a swipe closed; Instagram positioning the
+    pager while opening a reel is not a swipe.
+  - Times Scrollhalt had to go to the launcher are counted separately (in the details).
+  - During a pause or with Block Reels off nothing is blocked; swipes count as watched.
+- **Tracked**: the time the service ran. A day without it shows as "Not tracked", never
+  as zero.
+- Writes are batched: changes at most every 30 s, the last-seen time at most every 60 s
+  while Instagram is open, and at once when Instagram leaves the front, the screen goes
+  off or on, a pause starts or ends, or the service stops. If the process dies, open
+  sessions are closed at the last write.
+- **Reset statistics** (menu) deletes all days; settings and a running pause stay.
+
 ## Updating InstagramRules after an Instagram update
 
 All Instagram view ids are in one file:
@@ -201,6 +266,16 @@ memory only and are gone when the app process ends.
 - When it is unsure, it does nothing; it prefers missing a reel over blocking a chat.
 - Samsung (and Android after app updates) may turn the service off. Re-enable it
   and check "Never sleeping apps".
+- Usage numbers are estimates. Reels time is time a Reels viewer was on screen, not proof
+  of playback. Videos playing inline in the feed and Stories are not counted at all.
+- Statistics are only collected while the service runs; time after the last write before
+  the process is killed (at most about a minute) is lost.
+- With Instagram closed and the phone asleep, the end of a pause is applied at the next
+  Instagram event (the timer cannot fire in deep sleep). There is no visible difference:
+  that first event switches blocking back on before Scrollhalt looks at the screen.
+- A shared reel closed because "Shared Reels play once" is off is not counted in any
+  Blocked category.
+- Like the blocking itself, all statistics depend on Instagram's view ids.
 
 ## Manual test checklist
 
@@ -220,6 +295,15 @@ memory only and are gone when the app process ends.
 - [ ] Switch "Block Reels" off: the cover goes and the Reels tab works. On again: covered.
 - [ ] Switch "Allow reels shared in DMs" off: a DM reel closes right away.
 - [ ] Reboot the phone: the status card shows Protecting again without setup.
+- [ ] Pause for 1 minute: the card turns amber and counts down; Reels open normally; a
+      toast says "Reels blocking resumes in 10 s"; afterwards Reels are blocked again.
+- [ ] Pause while watching a Reel: when the pause ends the Reel keeps playing and the
+      next swipe closes it. On the Reels tab, Home is tapped at once.
+- [ ] Resume now ends a pause; switching Block Reels off during a pause cancels it.
+- [ ] Open and leave Instagram: "Instagram opened" and "Instagram time" go up; leaving and
+      coming back within 10 s does not add an opening.
+- [ ] Tap the covered Reels tab: "Reels tab" in Blocked today goes up by one per burst.
+- [ ] Reset statistics clears the numbers; the pause and settings stay.
 - [ ] Debug log shows the decisions; Copy snapshot puts only view ids on the clipboard.
 
 ## License and credits
