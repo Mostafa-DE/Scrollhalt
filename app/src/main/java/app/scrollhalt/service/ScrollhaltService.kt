@@ -93,7 +93,7 @@ class ScrollhaltService : AccessibilityService() {
             safely("screen ${intent.action}") {
                 when (intent.action) {
                     Intent.ACTION_SCREEN_OFF -> onScreenOff()
-                    Intent.ACTION_SCREEN_ON -> screenOn = true
+                    Intent.ACTION_SCREEN_ON -> onScreenOn()
                 }
             }
         }
@@ -193,10 +193,20 @@ class ScrollhaltService : AccessibilityService() {
         screenReceiverRegistered = true
     }
 
-    /** The screen went off: the Instagram session and any Reels viewer stop counting. */
+    /**
+     * The screen went off: the Instagram session and any Reels viewer stop counting. Writing
+     * here (and when the screen comes on) also keeps the tracked time of days without any
+     * Instagram use, so such a day is not shown as "Not tracked".
+     */
     private fun onScreenOff() {
         screenOn = false
-        if (stats.update { instagramAway(it).viewerGone(it) }) stats.write()
+        stats.update { instagramAway(it).viewerGone(it) }
+        stats.write()
+    }
+
+    private fun onScreenOn() {
+        screenOn = true
+        stats.write()
     }
 
     private fun onInstagramEvent(event: AccessibilityEvent) {
