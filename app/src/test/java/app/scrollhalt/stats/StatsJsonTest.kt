@@ -21,7 +21,7 @@ class StatsJsonTest {
             .instagramInFront(start)
             .viewerSeen(clock.now(), Classification(Screen.REELS_TAB, tabBarVisible = true), ProtectionMode.PAUSED)
             .policyEvents(clock.seconds(3), listOf(PolicyEvent.Attempt(BlockCategory.EXPLORE_REEL)))
-            .pauseStarted(clock.now(), PauseSpan(clock.wall, clock.wall + 5 * MINUTE))
+            .pauseStarted(clock.now(), clock.wall, Mark(clock.elapsed + 5 * MINUTE, clock.wall + 5 * MINUTE, clock.bootCount))
             .countAll(clock.minutes(2))
         assertEquals(state, StatsJson.decode(StatsJson.encode(state)))
     }
@@ -38,6 +38,17 @@ class StatsJsonTest {
         assertEquals(StatsState.SCHEMA_VERSION, state.schemaVersion)
         assertEquals(7L, state.generation)
         assertEquals(3, state.day(OCT_24).pausesStarted)
+    }
+
+    @Test
+    fun `statistics written by the previous build still load`() {
+        // 0.2.0 dev builds stored the pause as a span and the session's day as two fields.
+        val text = """{"schemaVersion":1,"generation":0,"days":{"2026-10-24":{"pausesStarted":2}},""" +
+            """"live":{"instagram":{"countedUntil":{"elapsedMillis":1,"wallMillis":2,"bootCount":7},"day":"2026-10-24","dayMillis":5},""" +
+            """"pause":{"startWallMillis":1,"endWallMillis":2}}}"""
+        val state = StatsJson.decode(text)
+        assertEquals(2, state.day(OCT_24).pausesStarted)
+        assertEquals(Mark(1, 2, 7), state.live.instagram?.countedUntil)
     }
 
     @Test(expected = SerializationException::class)

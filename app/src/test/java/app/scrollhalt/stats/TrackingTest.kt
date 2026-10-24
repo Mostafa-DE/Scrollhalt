@@ -4,6 +4,7 @@ import app.scrollhalt.detect.BlockCategory
 import app.scrollhalt.detect.Classification
 import app.scrollhalt.detect.PolicyEvent
 import app.scrollhalt.detect.Screen
+import app.scrollhalt.protect.Moment
 import app.scrollhalt.protect.ProtectionMode
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNotEquals
@@ -12,6 +13,8 @@ import org.junit.Assert.assertSame
 import org.junit.Assert.assertTrue
 import org.junit.Test
 import java.time.LocalDateTime
+
+private const val PAUSE_ID: Long = 1_792_000_000_000
 
 class TrackingTest {
     private val clock = TestClock()
@@ -90,62 +93,102 @@ class TrackingTest {
         assertNull(stats.live.instagram?.countedUntil)
     }
 
+    /** The end of a pause [millis] after [from], on the same boot. */
+    private fun endAfter(from: Moment, millis: Long): Mark = Mark(from.elapsedMillis + millis, from.wallMillis + millis, from.bootCount)
+
     @Test
     fun `a pause is counted once and its time when it ends`() {
         val start = clock.now()
-        val span = PauseSpan(start.wallMillis, start.wallMillis + 5 * MINUTE)
-        val running = StatsState().pauseStarted(start, span)
-        assertSame(running, running.pauseStarted(clock.minutes(1), span))
+        val end = endAfter(start, 5 * MINUTE)
+        val running = StatsState().pauseStarted(start, PAUSE_ID, end)
+        assertSame(running, running.pauseStarted(clock.minutes(1), PAUSE_ID, end))
         val ended = running.pauseEnded(clock.minutes(1))
         assertEquals(1, ended.day(OCT_24).pausesStarted)
         assertEquals(2 * MINUTE, ended.day(OCT_24).pausedMillis)
-        assertNull(ended.live.pause)
+        assertNull(ended.live.openPause)
     }
 
     @Test
     fun `an expired pause counts its full duration`() {
         val start = clock.now()
-        val span = PauseSpan(start.wallMillis, start.wallMillis + 5 * MINUTE)
-        val ended = StatsState().pauseStarted(start, span).pauseEnded(clock.minutes(30))
+        val ended = StatsState().pauseStarted(start, PAUSE_ID, endAfter(start, 5 * MINUTE)).pauseEnded(clock.minutes(30))
         assertEquals(5 * MINUTE, ended.day(OCT_24).pausedMillis)
     }
 
     @Test
     fun `a pause survives recovery and a new pause ends the old one`() {
         val start = clock.now()
-        val first = PauseSpan(start.wallMillis, start.wallMillis + 10 * MINUTE)
-        val recovered = StatsState().pauseStarted(start, first).serviceStarted(clock.minutes(2))
-        assertEquals(first, recovered.live.pause)
-        val second = PauseSpan(clock.minutes(1).wallMillis, clock.wall + 5 * MINUTE)
-        val replaced = recovered.pauseStarted(clock.now(), second)
+        val running = StatsState().pauseStarted(start, PAUSE_ID, endAfter(start, 10 * MINUTE))
+        val recovered = running.serviceStarted(clock.minutes(2))
+        assertEquals(running.live.openPause, recovered.live.openPause)
+        val replaced = recovered.pauseStarted(clock.minutes(1), PAUSE_ID + 1, endAfter(clock.now(), 5 * MINUTE))
         assertEquals(2, replaced.day(OCT_24).pausesStarted)
         assertEquals(3 * MINUTE, replaced.day(OCT_24).pausedMillis)
+    }
+
+    @Test
+    fun `the same pause with a new end is not a new pause`() {
+        val start = clock.now()
+        val running = StatsState().pauseStarted(start, PAUSE_ID, endAfter(start, 10 * MINUTE))
+        val moved = running.pauseStarted(clock.minutes(1), PAUSE_ID, endAfter(start, 4 * MINUTE))
+        val ended = moved.pauseEnded(clock.minutes(9))
+        assertEquals(1, ended.day(OCT_24).pausesStarted)
+        assertEquals(4 * MINUTE, ended.day(OCT_24).pausedMillis)
     }
 
     @Test
     fun `a pause over midnight is split`() {
         val night = TestClock(LocalDateTime.of(2026, 10, 24, 23, 58))
         val start = night.now()
-        val ended = StatsState().pauseStarted(start, PauseSpan(start.wallMillis, start.wallMillis + 5 * MINUTE)).pauseEnded(night.minutes(10))
+        val ended = StatsState().pauseStarted(start, PAUSE_ID, endAfter(start, 5 * MINUTE)).pauseEnded(night.minutes(10))
         assertEquals(2 * MINUTE, ended.day(OCT_24).pausedMillis)
         assertEquals(3 * MINUTE, ended.day(OCT_25).pausedMillis)
         assertEquals(1, ended.day(OCT_24).pausesStarted)
     }
 
     @Test
+    fun `a wall clock change during a pause keeps its elapsed time`() {
+        // Codex 10: the paused time came from wall clocks and became 0 after the clock went back.
+        val start = clock.now()
+        val running = StatsState().pauseStarted(start, PAUSE_ID, endAfter(start, 10 * MINUTE))
+        clock.minutes(2)
+        clock.wall -= 60 * MINUTE
+        val ended = running.pauseEnded(clock.minutes(1))
+        assertEquals(3 * MINUTE, ended.days.values.sumOf { it.pausedMillis })
+    }
+
+    @Test
+    fun `a pause that ended before a reboot counts up to its end`() {
+        val start = clock.now()
+        val running = StatsState().pauseStarted(start, PAUSE_ID, endAfter(start, 5 * MINUTE))
+        val ended = running.pauseEnded(clock.reboot(offMillis = 20 * MINUTE))
+        assertEquals(5 * MINUTE, ended.day(OCT_24).pausedMillis)
+    }
+
+    @Test
+    fun `reset during a pause counts it once, from the reset`() {
+        // Codex 4: reset moved the stored start, the service then took the same pause for a new one.
+        val start = clock.now()
+        val end = endAfter(start, 10 * MINUTE)
+        val reset = StatsState().serviceStarted(start).pauseStarted(start, PAUSE_ID, end).reset(clock.minutes(5), tracking = true)
+        val later = reset.pauseStarted(clock.minutes(1), PAUSE_ID, end).pauseEnded(clock.minutes(4))
+        assertEquals(0, later.day(OCT_24).pausesStarted)
+        assertEquals(5 * MINUTE, later.day(OCT_24).pausedMillis)
+    }
+
+    @Test
     fun `reset clears every day and keeps what runs`() {
         val start = clock.now()
-        val span = PauseSpan(start.wallMillis, start.wallMillis + 10 * MINUTE)
         val before = StatsState()
             .serviceStarted(start)
-            .pauseStarted(start, span)
+            .pauseStarted(start, PAUSE_ID, endAfter(start, 10 * MINUTE))
             .instagramInFront(start)
             .countAll(clock.minutes(5))
         val reset = before.reset(clock.now(), tracking = true)
         assertNotEquals(before.generation, reset.generation)
         assertEquals(setOf(Days.key(OCT_24)), reset.days.keys)
         assertEquals(DaySummary(trackedSinceWall = clock.wall), reset.day(OCT_24))
-        assertEquals(clock.wall, reset.live.pause?.startWallMillis)
+        assertEquals(clock.now().mark(), reset.live.openPause?.countedUntil)
         val later = reset.countAll(clock.minutes(1)).pauseEnded(clock.now())
         assertEquals(MINUTE, later.day(OCT_24).instagram.timeMillis)
         assertEquals(1, later.day(OCT_24).instagram.sessions)
@@ -177,7 +220,7 @@ class TrackingTest {
         // 09:00 service on; 09:00-09:10 Instagram with 2 min of paused Reels; 3 blocked attempts.
         val start = clock.now()
         var stats = StatsState().serviceStarted(start).instagramInFront(start)
-        stats = stats.pauseStarted(clock.minutes(1), PauseSpan(clock.wall, clock.wall + MINUTE))
+        stats = stats.pauseStarted(clock.minutes(1), PAUSE_ID, endAfter(clock.now(), MINUTE))
             .viewerSeen(clock.now(), reelsTab, ProtectionMode.PAUSED)
             .viewerGone(clock.minutes(1))
             .pauseEnded(clock.now())

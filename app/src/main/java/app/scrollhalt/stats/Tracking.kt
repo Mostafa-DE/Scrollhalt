@@ -28,7 +28,7 @@ fun StatsState.recover(now: Moment): StatsState {
     val closed = if (last == null) this else Moment(last.elapsedMillis, last.wallMillis, last.bootCount, now.zone).let { at ->
         countInstagram(at).viewerGone(at).countTracked(at)
     }
-    return closed.copy(live = LiveRecord(pause = live.pause))
+    return closed.copy(live = LiveRecord(openPause = live.openPause))
 }
 
 /** Counts everything in progress up to [now] (before each write) and drops days past retention. */
@@ -51,25 +51,32 @@ fun StatsState.countTracked(now: Moment): StatsState {
     return copy(days = counted, live = live.copy(trackedUntil = now.mark()))
 }
 
-/** A pause is running; counted once however often it is seen again. */
-fun StatsState.pauseStarted(now: Moment, span: PauseSpan): StatsState {
-    if (live.pause == span) return this
+/**
+ * The pause [id] runs until [end]. It is counted as started once however often it is seen
+ * again, and a new end for the same pause only replaces the end.
+ */
+fun StatsState.pauseStarted(now: Moment, id: Long, end: Mark): StatsState {
+    val open = live.openPause
+    if (open?.id == id) return if (open.end == end) this else copy(live = live.copy(openPause = open.copy(end = end)))
     val previous = pauseEnded(now)
-    val date = Days.dateOf(span.startWallMillis, now.zone)
     return previous.copy(
-        days = previous.days.update(date) { it.copy(pausesStarted = it.pausesStarted + 1) },
-        live = previous.live.copy(pause = span),
+        days = previous.days.update(Days.today(now)) { it.copy(pausesStarted = it.pausesStarted + 1) },
+        live = previous.live.copy(openPause = OpenPause(id, now.mark(), end)),
     )
 }
 
-/** The pause ended (expired, resumed early or cancelled): its time is split over its days. */
+/**
+ * The pause ended (expired, resumed early or cancelled): its time up to its end or [now],
+ * whichever came first, by elapsed time (wall clock only across a reboot), split by day.
+ */
 fun StatsState.pauseEnded(now: Moment): StatsState {
-    val span = live.pause ?: return this
-    val end = minOf(now.wallMillis, span.endWallMillis)
-    val counted = splitByDay(span.startWallMillis, end - span.startWallMillis, now.zone).fold(days) { days, part ->
+    val open = live.openPause ?: return this
+    val nowMark = now.mark()
+    val stop = if (millisBetween(open.end, nowMark) > 0) open.end else nowMark
+    val counted = splitByDay(open.countedUntil, Moment(stop.elapsedMillis, stop.wallMillis, stop.bootCount, now.zone)).fold(days) { days, part ->
         days.update(part.date) { it.copy(pausedMillis = it.pausedMillis + part.millis) }
     }
-    return copy(days = counted, live = live.copy(pause = null))
+    return copy(days = counted, live = live.copy(openPause = null))
 }
 
 /**
@@ -93,7 +100,7 @@ private fun LiveRecord.restarted(now: Moment): LiveRecord {
         instagram = instagram?.let { if (it.countedUntil == null) it else it.copy(countedUntil = mark, day = "", dayMillis = 0) },
         viewer = viewer?.copy(countedUntil = mark, dayMillis = 0),
         trackedUntil = trackedUntil?.let { mark },
-        pause = pause?.copy(startWallMillis = maxOf(pause.startWallMillis, now.wallMillis)),
+        openPause = openPause?.copy(countedUntil = mark),
         attempts = AttemptMarks(),
     )
 }

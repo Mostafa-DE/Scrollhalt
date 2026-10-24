@@ -40,7 +40,7 @@ import app.scrollhalt.protect.PauseState
 import app.scrollhalt.protect.ProtectionMode
 import app.scrollhalt.protect.protectionMode
 import app.scrollhalt.stats.Front
-import app.scrollhalt.stats.PauseSpan
+import app.scrollhalt.stats.Mark
 import app.scrollhalt.stats.UsageRules
 import app.scrollhalt.stats.actionTaken
 import app.scrollhalt.stats.coverTapped
@@ -384,7 +384,11 @@ class ScrollhaltService : AccessibilityService() {
     private fun trackPause(now: Moment, mode: ProtectionMode) {
         val pause = settings.pause?.takeIf { mode == ProtectionMode.PAUSED }
         val changed = stats.update {
-            if (pause == null) pauseEnded(now) else pauseStarted(now, PauseSpan(pause.endWallMillis - pause.durationMillis, pause.endWallMillis))
+            if (pause == null) {
+                pauseEnded(now)
+            } else {
+                pauseStarted(now, pause.endWallMillis - pause.durationMillis, Mark(pause.endElapsedMillis, pause.endWallMillis, pause.bootCount))
+            }
         }
         if (changed) stats.write()
     }

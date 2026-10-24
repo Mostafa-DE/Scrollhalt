@@ -101,7 +101,7 @@ data class LiveRecord(
     /** Everything open was counted up to here (at the last write). */
     val lastSeen: Mark? = null,
     /** The pause whose start was counted; its time is counted when it ends. */
-    val pause: PauseSpan? = null,
+    val openPause: OpenPause? = null,
     val attempts: AttemptMarks = AttemptMarks(),
 )
 
@@ -136,9 +136,13 @@ data class OpenViewer(
     val page: String? = null,
 )
 
-/** A pause by wall clock: its time is split over the days it covered. */
+/**
+ * A running pause, counted as started once: [id] stays the same for the whole pause, also
+ * when [end] moves (rebased after a reboot). Its time is counted from [countedUntil] (its
+ * start, or a reset) up to [end] or the moment it was ended early, by elapsed time.
+ */
 @Serializable
-data class PauseSpan(val startWallMillis: Long, val endWallMillis: Long)
+data class OpenPause(val id: Long, val countedUntil: Mark, val end: Mark)
 
 /** Attempts still waiting for their action or confirmation, and the last Reels tab attempt. */
 @Serializable
