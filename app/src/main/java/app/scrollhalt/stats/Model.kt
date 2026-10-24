@@ -111,9 +111,8 @@ data class OpenSession(
     val countedUntil: Mark?,
     /** When Instagram left the front; a return within [InstagramUsage.GRACE_MS] continues the session. */
     val awaySince: Mark? = null,
-    /** Local date of the session's current day part, and how long that part is. */
-    val day: String,
-    val dayMillis: Long = 0,
+    /** This session's time per local date (ISO key), so a date seen again is not a new session there. */
+    val dayParts: Map<String, Long> = emptyMap(),
 )
 
 enum class ViewerKind { REELS_TAB, SINGLE_REEL }
@@ -128,8 +127,8 @@ data class OpenViewer(
     val totalMillis: Long = 0,
     /** Counted as a session: it lasted [ReelsViewing.MIN_SESSION_MS]. */
     val counted: Boolean = false,
-    val day: String,
-    val dayMillis: Long = 0,
+    /** This viewer's time per local date (ISO key), for the longest stretch of each day. */
+    val dayParts: Map<String, Long> = emptyMap(),
     /** Pager and page index from scroll events, and the page on screen from scans. */
     val pagerKey: String? = null,
     val index: Int? = null,

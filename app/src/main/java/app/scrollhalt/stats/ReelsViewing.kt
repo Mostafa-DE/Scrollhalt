@@ -72,7 +72,7 @@ fun StatsState.countViewer(now: Moment): StatsState {
     val open = live.viewer ?: return this
     val (counted, viewer) = splitByDay(open.countedUntil, now).fold(days to open) { (days, viewer), part ->
         val key = Days.key(part.date)
-        val dayMillis = (if (key == viewer.day) viewer.dayMillis else 0) + part.millis
+        val dayMillis = (viewer.dayParts[key] ?: 0) + part.millis
         val total = viewer.totalMillis + part.millis
         val first = !viewer.counted && total >= ReelsViewing.MIN_SESSION_MS
         val updated = days.update(part.date) { day ->
@@ -85,13 +85,13 @@ fun StatsState.countViewer(now: Moment): StatsState {
                 ),
             )
         }
-        updated to viewer.copy(day = key, dayMillis = dayMillis, totalMillis = total, counted = viewer.counted || first)
+        updated to viewer.copy(dayParts = viewer.dayParts + (key to dayMillis), totalMillis = total, counted = viewer.counted || first)
     }
     return copy(days = counted, live = live.copy(viewer = viewer.copy(countedUntil = now.mark())))
 }
 
 private fun StatsState.openViewer(now: Moment, kind: ViewerKind, mode: ProtectionMode, page: String?): StatsState {
-    val viewer = OpenViewer(kind, startedAt = now.mark(), countedUntil = now.mark(), mode = mode, day = Days.key(Days.today(now)), page = page)
+    val viewer = OpenViewer(kind, startedAt = now.mark(), countedUntil = now.mark(), mode = mode, page = page)
     return copy(live = live.copy(viewer = viewer))
 }
 

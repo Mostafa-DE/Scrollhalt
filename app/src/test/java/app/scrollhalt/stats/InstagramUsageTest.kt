@@ -6,6 +6,7 @@ import org.junit.Assert.assertSame
 import org.junit.Test
 import java.time.LocalDateTime
 import java.time.ZoneId
+import java.time.ZoneOffset
 
 class InstagramUsageTest {
     private val clock = TestClock()
@@ -110,6 +111,20 @@ class InstagramUsageTest {
         assertEquals(5 * MINUTE, stats.day(OCT_24).instagram.timeMillis)
         assertEquals(20 * MINUTE, stats.day(OCT_25).instagram.timeMillis)
         assertEquals(25 * MINUTE, stats.days.values.sumOf { it.instagram.timeMillis })
+    }
+
+    @Test
+    fun `a time zone change back and forth keeps one session per day`() {
+        // Codex 9: going 25th -> 24th -> 25th counted the session twice on the 25th and
+        // restarted its length there.
+        val travel = TestClock(LocalDateTime.of(2026, 10, 25, 0, 10))
+        val first = StatsState().instagramInFront(travel.now()).countInstagram(travel.minutes(5))
+        travel.zone = ZoneOffset.UTC
+        val back = first.countInstagram(travel.minutes(5))
+        travel.zone = AMMAN
+        val stats = back.instagramAway(travel.minutes(5))
+        assertEquals(InstagramDay(openings = 1, sessions = 1, timeMillis = 10 * MINUTE, longestMillis = 10 * MINUTE), stats.day(OCT_25).instagram)
+        assertEquals(InstagramDay(sessions = 1, timeMillis = 5 * MINUTE, longestMillis = 5 * MINUTE), stats.day(OCT_24).instagram)
     }
 
     @Test

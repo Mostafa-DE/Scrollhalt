@@ -38,18 +38,18 @@ fun StatsState.countInstagram(now: Moment): StatsState {
     val from = open.countedUntil ?: return this
     val (counted, session) = splitByDay(from, now).fold(days to open) { (days, session), part ->
         val key = Days.key(part.date)
-        val newDay = key != session.day
-        val dayMillis = (if (newDay) 0 else session.dayMillis) + part.millis
+        val before = session.dayParts[key]
+        val dayMillis = (before ?: 0) + part.millis
         val updated = days.update(part.date) { day ->
             day.copy(
                 instagram = day.instagram.copy(
-                    sessions = day.instagram.sessions + if (newDay) 1 else 0,
+                    sessions = day.instagram.sessions + if (before == null) 1 else 0,
                     timeMillis = day.instagram.timeMillis + part.millis,
                     longestMillis = maxOf(day.instagram.longestMillis, dayMillis),
                 ),
             )
         }
-        updated to session.copy(day = key, dayMillis = dayMillis)
+        updated to session.copy(dayParts = session.dayParts + (key to dayMillis))
     }
     return copy(days = counted, live = live.copy(instagram = session.copy(countedUntil = now.mark())))
 }
@@ -59,5 +59,6 @@ private fun StatsState.openSession(now: Moment): StatsState {
     val counted = days.update(today) { day ->
         day.copy(instagram = day.instagram.copy(openings = day.instagram.openings + 1, sessions = day.instagram.sessions + 1))
     }
-    return copy(days = counted, live = live.copy(instagram = OpenSession(countedUntil = now.mark(), day = Days.key(today))))
+    val session = OpenSession(countedUntil = now.mark(), dayParts = mapOf(Days.key(today) to 0L))
+    return copy(days = counted, live = live.copy(instagram = session))
 }

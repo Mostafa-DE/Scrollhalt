@@ -97,8 +97,8 @@ fun StatsState.adoptReset(stored: StatsState, now: Moment): StatsState =
 private fun LiveRecord.restarted(now: Moment): LiveRecord {
     val mark = now.mark()
     return copy(
-        instagram = instagram?.let { if (it.countedUntil == null) it else it.copy(countedUntil = mark, day = "", dayMillis = 0) },
-        viewer = viewer?.copy(countedUntil = mark, dayMillis = 0),
+        instagram = instagram?.let { if (it.countedUntil == null) it else it.copy(countedUntil = mark, dayParts = emptyMap()) },
+        viewer = viewer?.copy(countedUntil = mark, dayParts = emptyMap()),
         trackedUntil = trackedUntil?.let { mark },
         openPause = openPause?.copy(countedUntil = mark),
         attempts = AttemptMarks(),
