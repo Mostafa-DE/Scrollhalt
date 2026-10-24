@@ -21,6 +21,7 @@ import app.scrollhalt.R
 import app.scrollhalt.data.AppSettings
 import app.scrollhalt.data.DeviceClock
 import app.scrollhalt.data.SettingsRepository
+import app.scrollhalt.data.StatsRepository
 import app.scrollhalt.debug.DebugEntry
 import app.scrollhalt.debug.DebugLog
 import app.scrollhalt.detect.Classification
@@ -84,7 +85,7 @@ class ScrollhaltService : AccessibilityService() {
     private var cover: ReelsTabCover? = null
     private val clock: Clock by lazy { DeviceClock(this) }
     private val settingsRepository: SettingsRepository by lazy { SettingsRepository(this) }
-    private val stats: StatsKeeper by lazy { StatsKeeper(clock) }
+    private val stats: StatsKeeper by lazy { StatsKeeper(clock, StatsRepository(this)) }
     private var screenOn = true
     private var screenReceiverRegistered = false
     private val screenReceiver = object : BroadcastReceiver() {
@@ -120,7 +121,7 @@ class ScrollhaltService : AccessibilityService() {
         scope = serviceScope
         screenOn = getSystemService(PowerManager::class.java)?.isInteractive != false
         registerScreenReceiver()
-        stats.start()
+        stats.start(serviceScope)
         serviceScope.launch {
             settingsRepository.settings.collect {
                 settings = it

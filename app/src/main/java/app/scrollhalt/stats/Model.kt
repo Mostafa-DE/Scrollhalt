@@ -3,12 +3,14 @@ package app.scrollhalt.stats
 import app.scrollhalt.detect.BlockCategory
 import app.scrollhalt.protect.Moment
 import app.scrollhalt.protect.ProtectionMode
+import kotlinx.serialization.Serializable
 
 /**
  * Usage statistics: one [DaySummary] per local date (ISO key, e.g. "2026-10-24"), kept
  * [Days.RETENTION_DAYS] days, plus the [LiveRecord] of what is in progress. No per-event
  * history is kept. Durations are estimates measured with elapsed time.
  */
+@Serializable
 data class StatsState(
     val schemaVersion: Int = SCHEMA_VERSION,
     /** Changes on "Reset statistics", so the service never writes back what was reset. */
@@ -21,6 +23,7 @@ data class StatsState(
     }
 }
 
+@Serializable
 data class DaySummary(
     val instagram: InstagramDay = InstagramDay(),
     val reels: ReelsDay = ReelsDay(),
@@ -33,6 +36,7 @@ data class DaySummary(
     val trackedSinceWall: Long? = null,
 )
 
+@Serializable
 data class InstagramDay(
     /** Times Instagram came to the front; a return within the grace gap is not a new one. */
     val openings: Int = 0,
@@ -44,6 +48,7 @@ data class InstagramDay(
 )
 
 /** Estimated Reels viewing: a Reels viewer on screen, not proof that a video played. */
+@Serializable
 data class ReelsDay(
     val protectedMillis: Long = 0,
     val pausedMillis: Long = 0,
@@ -60,8 +65,10 @@ data class ReelsDay(
 }
 
 /** One category of blocked attempts, by how far each got. */
+@Serializable
 data class Outcome(val detected: Int = 0, val actionTaken: Int = 0, val confirmed: Int = 0)
 
+@Serializable
 data class BlockedDay(
     val reelsTab: Outcome = Outcome(),
     val exploreReels: Outcome = Outcome(),
@@ -85,6 +92,7 @@ data class BlockedDay(
 }
 
 /** What is in progress. After process death it is closed at [lastSeen] (see [recover]). */
+@Serializable
 data class LiveRecord(
     val instagram: OpenSession? = null,
     val viewer: OpenViewer? = null,
@@ -98,6 +106,7 @@ data class LiveRecord(
 )
 
 /** An Instagram session. Time is counted up to [countedUntil]; null while Instagram is away. */
+@Serializable
 data class OpenSession(
     val countedUntil: Mark?,
     /** When Instagram left the front; a return within [InstagramUsage.GRACE_MS] continues the session. */
@@ -110,6 +119,7 @@ data class OpenSession(
 enum class ViewerKind { REELS_TAB, SINGLE_REEL }
 
 /** A Reels viewer on screen, counted up to [countedUntil] in [mode]. */
+@Serializable
 data class OpenViewer(
     val kind: ViewerKind,
     val startedAt: Mark,
@@ -127,9 +137,11 @@ data class OpenViewer(
 )
 
 /** A pause by wall clock: its time is split over the days it covered. */
+@Serializable
 data class PauseSpan(val startWallMillis: Long, val endWallMillis: Long)
 
 /** Attempts still waiting for their action or confirmation, and the last Reels tab attempt. */
+@Serializable
 data class AttemptMarks(
     val awaitingAction: Set<BlockCategory> = emptySet(),
     val awaitingConfirmation: Set<BlockCategory> = emptySet(),
@@ -137,6 +149,7 @@ data class AttemptMarks(
 )
 
 /** A clock reading kept in the statistics: a [Moment] without its time zone. */
+@Serializable
 data class Mark(val elapsedMillis: Long, val wallMillis: Long, val bootCount: Int)
 
 fun Moment.mark(): Mark = Mark(elapsedMillis, wallMillis, bootCount)
