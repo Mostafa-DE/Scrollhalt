@@ -78,7 +78,8 @@ data class ReelPolicy(
 
     /**
      * An action taken against [target]. [base] is the first rung of its escalation ladder,
-     * [last] the action actually taken, [streak] how many earlier actions were ineffective.
+     * [last] the action actually taken, [streak] how many earlier actions were ineffective,
+     * [category] what the attempt was (null for one the statistics do not count).
      */
     data class PendingAction(
         val target: Screen,
@@ -86,6 +87,7 @@ data class ReelPolicy(
         val last: Decision,
         val streak: Int,
         val actedAt: Long,
+        val category: BlockCategory? = null,
     )
 
     fun reduce(input: PolicyInput, settings: PolicySettings): PolicyResult = when (input) {
@@ -96,6 +98,7 @@ data class ReelPolicy(
             copy(session = null, pending = null, reelOnScreen = false, finishCurrent = false),
             Decision.NONE,
             "left Instagram",
+            events = pending.confirmation(),
         )
         is ProtectionPaused -> PolicyResult(protectionChanged(finish = false), Decision.NONE, "protection paused")
         is ProtectionResumed ->
@@ -117,7 +120,7 @@ data class ReelPolicy(
             // proof that the action failed: start the ladder again instead of escalating.
             val fresh = pending?.takeIf { it.target == Screen.REELS_TAB && input.atMillis > it.actedAt } != null
             copy(session = null, pending = if (fresh) null else pending)
-                .block(input.atMillis, Screen.REELS_TAB, Decision.GO_HOME, "Reels tab clicked")
+                .block(input.atMillis, Screen.REELS_TAB, Decision.GO_HOME, "Reels tab clicked", BlockCategory.REELS_TAB)
         }
     }
 
@@ -139,10 +142,12 @@ data class ReelPolicy(
                 seen.copy(session = null, pending = null, lastSurface = classification.screen),
                 Decision.NONE,
                 "on ${classification.screen}",
+                events = pending.confirmation(),
             )
             Screen.REELS_TAB ->
                 if (settings.blockingEnabled) {
-                    seen.copy(session = null).block(input.atMillis, Screen.REELS_TAB, Decision.GO_HOME, "Reels tab selected")
+                    seen.copy(session = null)
+                        .block(input.atMillis, Screen.REELS_TAB, Decision.GO_HOME, "Reels tab selected", BlockCategory.REELS_TAB)
                 } else {
                     PolicyResult(seen.copy(session = null, pending = null), Decision.NONE, "Reels tab, blocking disabled")
                 }
@@ -153,39 +158,44 @@ data class ReelPolicy(
     private fun onReel(at: Long, classification: Classification, settings: PolicySettings): PolicyResult {
         if (!settings.blockingEnabled) return PolicyResult(copy(pending = null), Decision.NONE, "blocking disabled")
         // An action against the Reels tab that led here worked: the Reels tab is gone.
-        val base = if (pending?.target == Screen.SINGLE_REEL) this else copy(pending = null)
+        val left = pending?.takeIf { it.target != Screen.SINGLE_REEL }
+        val base = if (left == null) this else copy(pending = null)
+        return base.onReelInFront(at, classification, settings).withEvents(left.confirmation())
+    }
+
+    private fun onReelInFront(at: Long, classification: Classification, settings: PolicySettings): PolicyResult {
         val origin = origin(classification)
-        val current = base.session
+        val current = session
 
         return when {
-            current == null && base.finishCurrent -> PolicyResult(
-                base.copy(session = base.newSession(at, origin, classification, resumed = true), finishCurrent = false),
+            current == null && finishCurrent -> PolicyResult(
+                copy(session = newSession(at, origin, classification, resumed = true), finishCurrent = false),
                 Decision.NONE,
                 "protection resumed, current reel finishes (from $origin)",
             )
             // A reel already allowed stays allowed even if the remembered origin changes.
             origin == ReelOrigin.EXPLORE && current == null ->
-                base.block(at, Screen.SINGLE_REEL, Decision.BACK, "reel opened from Explore")
+                block(at, Screen.SINGLE_REEL, Decision.BACK, "reel opened from Explore", BlockCategory.EXPLORE_REEL)
             origin == ReelOrigin.DM && !settings.allowSingleReel && current?.resumed != true ->
-                base.block(at, Screen.SINGLE_REEL, Decision.BACK, "reel shared in DM, single reels off")
+                block(at, Screen.SINGLE_REEL, Decision.BACK, "reel shared in DM, single reels off")
             current == null ->
-                PolicyResult(base.copy(session = base.newSession(at, origin, classification)), Decision.NONE, "first reel allowed (from $origin)")
+                PolicyResult(copy(session = newSession(at, origin, classification)), Decision.NONE, "first reel allowed (from $origin)")
             // Also enforces a swipe whose BACK was held back by the cooldown.
-            current.swipedAway -> base.block(at, Screen.SINGLE_REEL, Decision.BACK, "swiped to another reel")
+            current.swipedAway -> block(at, Screen.SINGLE_REEL, Decision.BACK, "swiped to another reel", BlockCategory.NEXT_REEL)
             current.pageKey == null && classification.reelPage != null ->
-                PolicyResult(base.copy(session = current.copy(pageKey = classification.reelPage)), Decision.NONE, "reel page recorded")
+                PolicyResult(copy(session = current.copy(pageKey = classification.reelPage)), Decision.NONE, "reel page recorded")
             classification.reelPage != null && classification.reelPage != current.pageKey -> when {
                 // A scroll to another index would already have closed the viewer, so every scroll
                 // since the confirmed start reported the opened reel: Instagram swapped the page.
                 current.startConfirmed ->
-                    PolicyResult(base.copy(session = current.copy(pageKey = classification.reelPage)), Decision.NONE, "page replaced on the opened reel")
-                base.lastScroll?.let { it.atMillis > current.startedAt } == true ->
-                    base.copy(session = current.copy(swipedAway = true))
-                        .block(at, Screen.SINGLE_REEL, Decision.BACK, "another reel page on screen after a scroll")
+                    PolicyResult(copy(session = current.copy(pageKey = classification.reelPage)), Decision.NONE, "page replaced on the opened reel")
+                lastScroll?.let { it.atMillis > current.startedAt } == true ->
+                    copy(session = current.copy(swipedAway = true))
+                        .block(at, Screen.SINGLE_REEL, Decision.BACK, "another reel page on screen after a scroll", BlockCategory.NEXT_REEL)
                 // A swipe always scrolls the pager; a page swapped without one is Instagram's own.
-                else -> PolicyResult(base.copy(session = current.copy(pageKey = classification.reelPage)), Decision.NONE, "page replaced without a scroll")
+                else -> PolicyResult(copy(session = current.copy(pageKey = classification.reelPage)), Decision.NONE, "page replaced without a scroll")
             }
-            else -> PolicyResult(base, Decision.NONE, "first reel playing (from ${current.origin})")
+            else -> PolicyResult(this, Decision.NONE, "first reel playing (from ${current.origin})")
         }
     }
 
@@ -214,10 +224,11 @@ data class ReelPolicy(
             PolicyResult(tracked.copy(session = session), Decision.NONE, "start index $index ($why)")
         }
         val swiped = { why: String ->
-            tracked.copy(session = current.copy(swipedAway = true)).block(input.atMillis, Screen.SINGLE_REEL, Decision.BACK, why)
+            tracked.copy(session = current.copy(swipedAway = true))
+                .block(input.atMillis, Screen.SINGLE_REEL, Decision.BACK, why, BlockCategory.NEXT_REEL)
         }
         return when {
-            current.swipedAway -> tracked.block(input.atMillis, Screen.SINGLE_REEL, Decision.BACK, "still swiping")
+            current.swipedAway -> tracked.block(input.atMillis, Screen.SINGLE_REEL, Decision.BACK, "still swiping", BlockCategory.NEXT_REEL)
             start == null && positioning -> adopt("opening")
             start == null && current.pageKey != null ->
                 // The page identity decides on the next scan; the index only becomes the baseline.
@@ -244,7 +255,7 @@ data class ReelPolicy(
      * Called whenever the blocked screen is observed; observations inside the cooldown are
      * held back and retried at its end, so neither a slow UI nor a fast re-tap slips through.
      */
-    private fun block(at: Long, target: Screen, startWith: Decision, why: String): PolicyResult {
+    private fun block(at: Long, target: Screen, startWith: Decision, why: String, category: BlockCategory? = null): PolicyResult {
         val paused = pausedUntil
         if (paused != null && at < paused) {
             return PolicyResult(this, Decision.NONE, "paused for ${paused - at} ms: detection may be broken ($why)", retryAtMillis = paused)
@@ -266,15 +277,24 @@ data class ReelPolicy(
         val streak = if (previous == null) 0 else previous.streak + 1
         val ladder = ladder(startWith)
         val decision = ladder[minOf(streak, ladder.lastIndex)]
+        val attempt = if (previous == null) category else previous.category
         val acted = copy(
-            pending = PendingAction(target, startWith, decision, streak, at),
+            pending = PendingAction(target, startWith, decision, streak, at, attempt),
             lastActionAt = at,
             globalHomeFailures = failures,
             pausedUntil = null,
         )
         val reason = if (previous == null) why else "$why; ${previous.last} ineffective (streak $streak)"
-        return PolicyResult(acted, decision, "$reason: $decision", retryAtMillis = at + COOLDOWN_MS)
+        val events = listOfNotNull(
+            attempt?.takeIf { previous == null }?.let(PolicyEvent::Attempt),
+            PolicyEvent.SentToLauncher.takeIf { decision == Decision.GLOBAL_HOME && previous?.last != Decision.GLOBAL_HOME },
+        )
+        return PolicyResult(acted, decision, "$reason: $decision", retryAtMillis = at + COOLDOWN_MS, events = events)
     }
+
+    /** The blocked screen of this pending action was left: the action worked. */
+    private fun PendingAction?.confirmation(): List<PolicyEvent> =
+        listOfNotNull(this?.category?.let(PolicyEvent::Confirmed))
 
     /** No state change; if an action still awaits judgement, make sure a scan happens after its cooldown. */
     private fun idle(at: Long, reason: String): PolicyResult {

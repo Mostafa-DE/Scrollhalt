@@ -1,12 +1,16 @@
 package app.scrollhalt.service
 
 import android.accessibilityservice.AccessibilityService
+import android.content.BroadcastReceiver
 import android.content.ComponentName
+import android.content.Context
 import android.content.Intent
+import android.content.IntentFilter
 import android.content.pm.PackageManager
 import android.os.Build
 import android.os.Handler
 import android.os.Looper
+import android.os.PowerManager
 import android.os.SystemClock
 import android.util.Log
 import android.view.accessibility.AccessibilityEvent
@@ -30,9 +34,24 @@ import app.scrollhalt.detect.ScreenClassifier
 import app.scrollhalt.detect.UiNode
 import app.scrollhalt.detect.onScreenIds
 import app.scrollhalt.protect.Clock
+import app.scrollhalt.protect.Moment
 import app.scrollhalt.protect.PauseState
 import app.scrollhalt.protect.ProtectionMode
 import app.scrollhalt.protect.protectionMode
+import app.scrollhalt.stats.Front
+import app.scrollhalt.stats.PauseSpan
+import app.scrollhalt.stats.UsageRules
+import app.scrollhalt.stats.actionTaken
+import app.scrollhalt.stats.coverTapped
+import app.scrollhalt.stats.instagramAway
+import app.scrollhalt.stats.instagramInFront
+import app.scrollhalt.stats.pauseEnded
+import app.scrollhalt.stats.pauseStarted
+import app.scrollhalt.stats.policyEvents
+import app.scrollhalt.stats.viewerGone
+import app.scrollhalt.stats.viewerMode
+import app.scrollhalt.stats.viewerScrolled
+import app.scrollhalt.stats.viewerSeen
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
@@ -47,7 +66,7 @@ internal const val LOG_TAG: String = "Scrollhalt"
  * appear. All work runs on the main thread in response to events: no polling, nothing runs
  * while idle (timers exist only while a retry or a pause is pending). Events from other apps
  * are used only to notice that Instagram is no longer in front (their package name; nothing
- * else is read).
+ * else is read). Usage statistics are fed from the same events (see [StatsKeeper]).
  */
 class ScrollhaltService : AccessibilityService() {
     private val handler = Handler(Looper.getMainLooper())
@@ -65,8 +84,22 @@ class ScrollhaltService : AccessibilityService() {
     private var cover: ReelsTabCover? = null
     private val clock: Clock by lazy { DeviceClock(this) }
     private val settingsRepository: SettingsRepository by lazy { SettingsRepository(this) }
+    private val stats: StatsKeeper by lazy { StatsKeeper(clock) }
+    private var screenOn = true
+    private var screenReceiverRegistered = false
+    private val screenReceiver = object : BroadcastReceiver() {
+        override fun onReceive(context: Context, intent: Intent) {
+            safely("screen ${intent.action}") {
+                when (intent.action) {
+                    Intent.ACTION_SCREEN_OFF -> onScreenOff()
+                    Intent.ACTION_SCREEN_ON -> screenOn = true
+                }
+            }
+        }
+    }
 
     private var settings = AppSettings()
+    private var settingsLoaded = false
     /** Whether Reels were blocked at the last check; null before the first one. */
     private var protecting: Boolean? = null
     private var clearRequested: PauseState? = null
@@ -79,12 +112,19 @@ class ScrollhaltService : AccessibilityService() {
 
     override fun onServiceConnected() {
         super.onServiceConnected()
-        cover = ReelsTabCover(this) { showToast(R.string.toast_tab_hidden) }
+        cover = ReelsTabCover(this) {
+            showToast(R.string.toast_tab_hidden)
+            stats.update { coverTapped(it) }
+        }
         val serviceScope = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate)
         scope = serviceScope
+        screenOn = getSystemService(PowerManager::class.java)?.isInteractive != false
+        registerScreenReceiver()
+        stats.start()
         serviceScope.launch {
             settingsRepository.settings.collect {
                 settings = it
+                settingsLoaded = true
                 safely("settings") {
                     reconcileProtection()
                     schedulePauseTimers()
@@ -128,9 +168,34 @@ class ScrollhaltService : AccessibilityService() {
         handler.removeCallbacks(headsUpRunnable)
         scanPending = false
         cover?.hide()
+        if (screenReceiverRegistered) {
+            unregisterReceiver(screenReceiver)
+            screenReceiverRegistered = false
+        }
+        stats.stop()
         scope?.cancel()
         scope = null
         ServiceState.setConnected(false)
+    }
+
+    /** Screen on/off broadcasts are protected: only the system can send them. */
+    private fun registerScreenReceiver() {
+        val filter = IntentFilter().apply {
+            addAction(Intent.ACTION_SCREEN_OFF)
+            addAction(Intent.ACTION_SCREEN_ON)
+        }
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+            registerReceiver(screenReceiver, filter, RECEIVER_EXPORTED)
+        } else {
+            registerReceiver(screenReceiver, filter)
+        }
+        screenReceiverRegistered = true
+    }
+
+    /** The screen went off: the Instagram session and any Reels viewer stop counting. */
+    private fun onScreenOff() {
+        screenOn = false
+        if (stats.update { instagramAway(it).viewerGone(it) }) stats.write()
     }
 
     private fun onInstagramEvent(event: AccessibilityEvent) {
@@ -145,11 +210,25 @@ class ScrollhaltService : AccessibilityService() {
             AccessibilityEvent.TYPE_WINDOW_CONTENT_CHANGED, AccessibilityEvent.TYPE_WINDOWS_CHANGED -> scheduleScan()
             else -> Unit
         }
+        stats.maybeWrite()
     }
 
     private fun onOtherWindowChanged() {
+        val counting = stats.counting
+        if (!inInstagram && !counting) return
+        val front = activePackage()
+        if (counting) trackFront(front)
         if (!inInstagram) return
-        if (!instagramInFront()) leftInstagram() else scheduleScan()
+        if (front != InstagramRules.PACKAGE) leftInstagram() else scheduleScan()
+    }
+
+    /**
+     * Ends the Instagram session when another app or the launcher is in front. The shade,
+     * keyboards and dialogs over Instagram do not end it (see [UsageRules]).
+     */
+    private fun trackFront(packageName: String?) {
+        if (UsageRules.front(packageName, inputMethod = false) != Front.ELSEWHERE || inputMethodActive()) return
+        if (stats.update { instagramAway(it).viewerGone(it) }) stats.write()
     }
 
     private fun leftInstagram() {
@@ -190,6 +269,7 @@ class ScrollhaltService : AccessibilityService() {
             // tells two pagers apart even though they share a resource id.
             val key = "${event.windowId}:${source.hashCode()}"
             val scrolled = apply(PolicyInput.PagerScrolled(now(), key, event.fromIndex))
+            stats.update { viewerScrolled(it, key, event.fromIndex) }
             val details = "act=${activityName()} from=${event.fromIndex} to=${event.toIndex} " +
                 "count=${event.itemCount} pager=$key"
             log("pager scroll", details, scrolled, always = true)
@@ -219,19 +299,24 @@ class ScrollhaltService : AccessibilityService() {
             return
         }
         try {
-            if (root.packageName?.toString() != InstagramRules.PACKAGE) {
+            val packageName = root.packageName?.toString()
+            if (packageName != InstagramRules.PACKAGE) {
+                trackFront(packageName)
                 if (inInstagram) leftInstagram()
                 return
             }
             inInstagram = true
+            if (screenOn) stats.update { instagramInFront(it) }
             val snapshot = NodeSnapshot.of(root) ?: return
             if (verbose()) dumpTree(snapshot)
             if (settings.debugCapture) DebugLog.setSnapshot(snapshot.onScreenIds())
             val classification = ScreenClassifier.classify(snapshot, activity)
+            if (screenOn) stats.update { viewerSeen(it, classification, mode()) }
             updateCover(classification)
             val result = apply(PolicyInput.ScreenSeen(now(), classification))
             log("scan", describe(classification), result)
             perform(result)
+            stats.maybeWrite()
         } finally {
             root.release()
         }
@@ -262,7 +347,10 @@ class ScrollhaltService : AccessibilityService() {
             clearRequested = expired
             scope?.launch { settingsRepository.clearPause(expected = expired) }
         }
-        val active = protectionMode(settings.blockingEnabled, settings.pause, now) == ProtectionMode.PROTECTED
+        val mode = protectionMode(settings.blockingEnabled, settings.pause, now)
+        stats.update { viewerMode(it, mode) }
+        if (settingsLoaded) trackPause(now, mode)
+        val active = mode == ProtectionMode.PROTECTED
         val previous = protecting
         protecting = active
         if (previous == null || previous == active) return
@@ -273,6 +361,15 @@ class ScrollhaltService : AccessibilityService() {
             cover?.hide()
             log("protection", "-", apply(PolicyInput.ProtectionPaused(now())), always = true)
         }
+    }
+
+    /** Counts a pause once when it starts and its time when it ends; both are written at once. */
+    private fun trackPause(now: Moment, mode: ProtectionMode) {
+        val pause = settings.pause?.takeIf { mode == ProtectionMode.PAUSED }
+        val changed = stats.update {
+            if (pause == null) pauseEnded(now) else pauseStarted(now, PauseSpan(pause.endWallMillis - pause.durationMillis, pause.endWallMillis))
+        }
+        if (changed) stats.write()
     }
 
     /** Timers for the end of a pause and the heads-up before it; none without a pause. */
@@ -296,6 +393,7 @@ class ScrollhaltService : AccessibilityService() {
         val result = policy.reduce(input, PolicySettings(blocking(), settings.allowSingleReel))
         policy = result.policy
         result.retryAtMillis?.let(::scheduleRetry)
+        if (result.events.isNotEmpty()) stats.update { policyEvents(it, result.events) }
         return result
     }
 
@@ -319,6 +417,8 @@ class ScrollhaltService : AccessibilityService() {
             Decision.GLOBAL_HOME -> performGlobalAction(GLOBAL_ACTION_HOME)
         }
         if (!done) log("action", "-", result.copy(reason = "action failed: ${result.decision}"), always = true)
+        val category = result.policy.pending?.category
+        if (done && category != null) stats.update { actionTaken(it, category) }
         showToast(R.string.toast_blocked)
     }
 
@@ -339,20 +439,28 @@ class ScrollhaltService : AccessibilityService() {
         }
     }
 
-    private fun instagramInFront(): Boolean {
-        val root = activeRoot() ?: return false
+    private fun instagramInFront(): Boolean = activePackage() == InstagramRules.PACKAGE
+
+    /** Package of the active window (nothing else about it is read). */
+    private fun activePackage(): String? {
+        val root = activeRoot() ?: return null
         return try {
-            root.packageName?.toString() == InstagramRules.PACKAGE
+            root.packageName?.toString()
         } finally {
             root.release()
         }
     }
 
     /** A keyboard window is on screen (window type only; nothing else about it is read). */
-    private fun keyboardShown(): Boolean = try {
+    private fun keyboardShown(): Boolean = anyWindow { it.type == AccessibilityWindowInfo.TYPE_INPUT_METHOD }
+
+    /** The active window is a keyboard. */
+    private fun inputMethodActive(): Boolean = anyWindow { it.isActive && it.type == AccessibilityWindowInfo.TYPE_INPUT_METHOD }
+
+    private fun anyWindow(predicate: (AccessibilityWindowInfo) -> Boolean): Boolean = try {
         val all = windows
         try {
-            all.any { it.type == AccessibilityWindowInfo.TYPE_INPUT_METHOD }
+            all.any(predicate)
         } finally {
             if (Build.VERSION.SDK_INT < Build.VERSION_CODES.TIRAMISU) {
                 @Suppress("DEPRECATION")
