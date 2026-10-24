@@ -10,6 +10,7 @@ import androidx.datastore.dataStore
 import app.scrollhalt.protect.Moment
 import app.scrollhalt.stats.StatsJson
 import app.scrollhalt.stats.StatsState
+import app.scrollhalt.stats.StatsStore
 import app.scrollhalt.stats.reset
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -48,17 +49,16 @@ private val Context.statsStore: DataStore<StatsState> by dataStore(
 /** One writer at a time, in order, and not tied to a service that may be stopping. */
 private val writes: CoroutineScope = CoroutineScope(SupervisorJob() + Dispatchers.IO.limitedParallelism(1))
 
-class StatsRepository(context: Context) {
+class StatsRepository(context: Context) : StatsStore {
     private val store: DataStore<StatsState> = context.applicationContext.statsStore
 
-    val stats: Flow<StatsState> = store.data.catch { e ->
+    override val stats: Flow<StatsState> = store.data.catch { e ->
         if (e !is IOException) throw e
         Log.w(TAG, "statistics unreadable: ${e.javaClass.simpleName}")
         emit(StatsState())
     }
 
-    /** Writes [state] in the background, unless the stored statistics were reset meanwhile. */
-    fun save(state: StatsState) {
+    override fun save(state: StatsState) {
         writes.launch {
             try {
                 store.updateData { stored -> if (stored.generation == state.generation) state else stored }
