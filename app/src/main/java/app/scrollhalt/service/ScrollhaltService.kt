@@ -16,7 +16,7 @@ import android.util.Log
 import android.view.accessibility.AccessibilityEvent
 import android.view.accessibility.AccessibilityNodeInfo
 import android.view.accessibility.AccessibilityWindowInfo
-import android.widget.Toast
+import androidx.annotation.StringRes
 import app.scrollhalt.R
 import app.scrollhalt.data.AppSettings
 import app.scrollhalt.data.DeviceClock
@@ -84,6 +84,7 @@ class ScrollhaltService : AccessibilityService() {
     private var running = false
     private var scope: CoroutineScope? = null
     private var cover: ReelsTabCover? = null
+    private var banner: Banner? = null
     private val clock: Clock by lazy { DeviceClock(this) }
     private val settingsRepository: SettingsRepository by lazy { SettingsRepository(this) }
     private val stats: StatsKeeper by lazy { StatsKeeper.shared(applicationContext) }
@@ -104,6 +105,7 @@ class ScrollhaltService : AccessibilityService() {
     private var settingsLoaded = false
     /** Whether Reels were blocked at the last check; null before the first one. */
     private var protecting: Boolean? = null
+    private var lastMode: ProtectionMode? = null
     private var clearRequested: PauseState? = null
     private var rebaseRequested: PauseState? = null
     private var policy = ReelPolicy()
@@ -111,13 +113,13 @@ class ScrollhaltService : AccessibilityService() {
     private var inInstagram = false
     private var lastLogged: Pair<String, String>? = null
     private var lastScreen: String? = null
-    private var lastToastAt = 0L
 
     override fun onServiceConnected() {
         super.onServiceConnected()
         running = true
+        banner = Banner(this)
         cover = ReelsTabCover(this) {
-            showToast(R.string.toast_tab_hidden)
+            showBanner(R.string.banner_tab_hidden)
             stats.update { coverTapped(it) }
         }
         val serviceScope = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate)
@@ -153,6 +155,7 @@ class ScrollhaltService : AccessibilityService() {
 
     override fun onInterrupt() {
         cover?.hide()
+        banner?.hide()
     }
 
     override fun onUnbind(intent: Intent?): Boolean {
@@ -175,6 +178,7 @@ class ScrollhaltService : AccessibilityService() {
         handler.removeCallbacks(headsUpRunnable)
         scanPending = false
         cover?.hide()
+        banner?.hide()
         if (screenReceiverRegistered) {
             unregisterReceiver(screenReceiver)
             screenReceiverRegistered = false
@@ -251,6 +255,7 @@ class ScrollhaltService : AccessibilityService() {
     private fun leftInstagram() {
         inInstagram = false
         cover?.hide()
+        banner?.hide()
         log("window", "left Instagram", apply(PolicyInput.LeftApp(now())), always = true)
     }
 
@@ -373,10 +378,13 @@ class ScrollhaltService : AccessibilityService() {
         if (settingsLoaded) trackPause(now, mode)
         val active = mode == ProtectionMode.PROTECTED
         val previous = protecting
+        val previousMode = lastMode
         protecting = active
+        lastMode = mode
         if (previous == null || previous == active) return
         if (active) {
             log("protection", "-", apply(PolicyInput.ProtectionResumed(now())), always = true)
+            if (previousMode == ProtectionMode.PAUSED) showBanner(R.string.banner_protection_back)
             if (inInstagram) scheduleScan()
         } else {
             cover?.hide()
@@ -409,9 +417,7 @@ class ScrollhaltService : AccessibilityService() {
     }
 
     private fun pauseHeadsUp() {
-        if (mode() == ProtectionMode.PAUSED && instagramInFront()) {
-            Toast.makeText(this, R.string.toast_resumes_soon, Toast.LENGTH_SHORT).show()
-        }
+        if (mode() == ProtectionMode.PAUSED) showBanner(R.string.banner_resumes_soon)
     }
 
     private fun apply(input: PolicyInput): PolicyResult {
@@ -444,7 +450,7 @@ class ScrollhaltService : AccessibilityService() {
         if (!done) log("action", "-", result.copy(reason = "action failed: ${result.decision}"), always = true)
         val category = result.policy.pending?.category
         if (done && category != null) stats.update { actionTaken(it, category) }
-        showToast(R.string.toast_blocked)
+        showBanner(R.string.banner_blocked)
     }
 
     private fun clickHomeTab(): Boolean {
@@ -534,11 +540,9 @@ class ScrollhaltService : AccessibilityService() {
         DebugLog.add(DebugEntry(System.currentTimeMillis(), eventType, screen, result.decision.name, result.reason))
     }
 
-    private fun showToast(messageRes: Int) {
-        val now = now()
-        if (now - lastToastAt < TOAST_INTERVAL_MS) return
-        lastToastAt = now
-        Toast.makeText(this, messageRes, Toast.LENGTH_SHORT).show()
+    /** Messages appear over Instagram only (see [Banner]). */
+    private fun showBanner(@StringRes message: Int) {
+        if (instagramInFront()) banner?.show(message)
     }
 
     private fun describe(classification: Classification): String = buildString {
@@ -580,9 +584,8 @@ class ScrollhaltService : AccessibilityService() {
 
     private companion object {
         const val SCAN_DELAY_MS: Long = 100
-        const val TOAST_INTERVAL_MS: Long = 5_000
 
-        /** The "blocking resumes" toast comes this long before a pause ends. */
+        /** The "blocking resumes" message comes this long before a pause ends. */
         const val HEADS_UP_MS: Long = 10_000
     }
 }

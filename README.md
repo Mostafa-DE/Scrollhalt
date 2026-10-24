@@ -14,7 +14,7 @@ Stories, DMs, profiles, Explore and search all work as normal.
 - Reels opened from the **Explore grid** are closed at once; search, results and
   profiles found by search keep working.
 - **Pause protection** for 1, 5, 10 or 15 minutes: Reels open normally until the timer
-  ends, then blocking turns back on by itself (with a heads-up toast 10 s before).
+  ends, then blocking turns back on by itself (with a heads-up 10 s before).
 - A **usage dashboard**: how often and how long Instagram was open today, estimated Reels
   viewing time, Reels watched, blocked attempts, and a 7-day chart.
 - No permissions, no internet access, nothing sent anywhere. Usage statistics stay in an
@@ -168,6 +168,15 @@ Flow:
    (id, visible/selected flags, bounds) and every click; `setprop log.tag.Scrollhalt ""`
    turns that off.
 
+## Messages
+
+Scrollhalt's messages ("Reels blocked", "Reels hidden by Scrollhalt", the pause heads-up and
+"Reels blocking is back on") appear in a small banner below the status bar, drawn as an
+accessibility overlay like the Reels cover. Toasts are not used: Android drops them for apps
+whose notifications are off, and Scrollhalt asks for no notification permission. The banner
+never takes touches, shows one message at a time, disappears after 2.5 s, shows the same
+message at most every 5 s, and only appears while Instagram is in front.
+
 ## Pause and protection states
 
 The status card shows one of four states: **Protecting** (Block Reels on), **Paused**
@@ -282,10 +291,10 @@ memory only and are gone when the app process ends.
 ## Manual test checklist
 
 - [ ] Open Instagram normally: the feed loads, nothing happens.
-- [ ] The Reels tab button is covered; tapping it does nothing ("Reels hidden" toast).
+- [ ] The Reels tab button is covered; tapping it does nothing ("Reels hidden" banner).
 - [ ] Press Home: the cover disappears. Reopen Instagram: it comes back.
 - [ ] Open a reel someone sent you in a DM: it plays.
-- [ ] Swipe up to the next reel: the viewer closes ("Reels blocked" toast).
+- [ ] Swipe up to the next reel: the viewer closes ("Reels blocked" banner).
 - [ ] Back from that reel returns to the chat.
 - [ ] Open a reel from the Explore grid: it closes at once. Search, results and profiles work.
 - [ ] Search a profile and open one of its reels: it plays; a swipe closes it.
@@ -298,7 +307,7 @@ memory only and are gone when the app process ends.
 - [ ] Switch "Allow reels shared in DMs" off: a DM reel closes right away.
 - [ ] Reboot the phone: the status card shows Protecting again without setup.
 - [ ] Pause for 1 minute: the card turns amber and counts down; Reels open normally; a
-      toast says "Reels blocking resumes in 10 s"; afterwards Reels are blocked again.
+      banner says "Reels blocking resumes in 10 s", then "Reels blocking is back on".
 - [ ] Pause while watching a Reel: when the pause ends the Reel keeps playing and the
       next swipe closes it. On the Reels tab feed the current Reel keeps playing too and the
       next swipe taps Home.

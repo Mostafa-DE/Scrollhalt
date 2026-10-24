@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- Scrollhalt's message banner over Instagram, in the app theme's surface colours. -->
+    <color name="banner_background">#FFFFFFFF</color>
+    <color name="banner_text">#FF1C1B19</color>
+    <color name="banner_mark">#FF0F3D3A</color>
+</resources>
