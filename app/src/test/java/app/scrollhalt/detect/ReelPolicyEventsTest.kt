@@ -100,6 +100,20 @@ class ReelPolicyEventsTest {
     }
 
     @Test
+    fun `a reel closed onto the reels tab is confirmed once`() {
+        // Codex 7: the Reels tab replaced the pending Back without confirming it, also when the
+        // Reels tab scan was held back by the cooldown.
+        val run = Run()
+        run.seen(0, grid)
+        run.seen(500, exploreReel)
+        val held = run.seen(800, reelsTab)
+        assertEquals(Decision.NONE, held.decision)
+        assertEquals(listOf<PolicyEvent>(Confirmed(BlockCategory.EXPLORE_REEL)), held.events)
+        assertEquals(listOf<PolicyEvent>(Attempt(BlockCategory.REELS_TAB)), run.seen(1_300, reelsTab).events)
+        assertEquals(1, run.events.count { it is Confirmed })
+    }
+
+    @Test
     fun `explore reel counts once per closed viewer`() {
         val run = Run()
         run.seen(0, grid)

@@ -187,8 +187,14 @@ data class ReelPolicy(
                     resumed?.swipedAway == true ->
                         seen.block(input.atMillis, Screen.REELS_TAB, Decision.GO_HOME, "swiped on the Reels tab", BlockCategory.NEXT_REEL)
                     resumed != null -> PolicyResult(seen, Decision.NONE, "Reels tab reel finishes after the pause")
-                    else -> seen.copy(session = null)
-                        .block(input.atMillis, Screen.REELS_TAB, Decision.GO_HOME, "Reels tab selected", BlockCategory.REELS_TAB)
+                    else -> {
+                        // A reel closed onto the Reels tab: the action against the reel worked.
+                        val left = (seen.pending ?: seen.stuckAttempt)?.takeIf { it.target != Screen.REELS_TAB }
+                        val base = if (left == null) seen else seen.copy(pending = null, stuckAttempt = null)
+                        base.copy(session = null)
+                            .block(input.atMillis, Screen.REELS_TAB, Decision.GO_HOME, "Reels tab selected", BlockCategory.REELS_TAB)
+                            .withEvents(left.confirmation())
+                    }
                 }
             }
             Screen.SINGLE_REEL -> seen.onReel(input.atMillis, classification, settings)
