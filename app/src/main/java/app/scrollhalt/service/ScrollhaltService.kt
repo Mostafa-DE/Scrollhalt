@@ -81,6 +81,8 @@ class ScrollhaltService : AccessibilityService() {
     }
     private val headsUpRunnable = Runnable { safely("pause heads-up") { pauseHeadsUp() } }
     private var scanPending = false
+    /** Between onServiceConnected and the first shutdown(); shutdown runs once per connection. */
+    private var running = false
     private var scope: CoroutineScope? = null
     private var cover: ReelsTabCover? = null
     private val clock: Clock by lazy { DeviceClock(this) }
@@ -113,6 +115,7 @@ class ScrollhaltService : AccessibilityService() {
 
     override fun onServiceConnected() {
         super.onServiceConnected()
+        running = true
         cover = ReelsTabCover(this) {
             showToast(R.string.toast_tab_hidden)
             stats.update { coverTapped(it) }
@@ -133,7 +136,7 @@ class ScrollhaltService : AccessibilityService() {
                 }
             }
         }
-        ServiceState.setConnected(true)
+        ServiceState.setConnected(true, this)
     }
 
     override fun onAccessibilityEvent(event: AccessibilityEvent) {
@@ -162,7 +165,10 @@ class ScrollhaltService : AccessibilityService() {
         super.onDestroy()
     }
 
+    /** Called from both onUnbind and onDestroy; only the first call does anything. */
     private fun shutdown() {
+        if (!running) return
+        running = false
         handler.removeCallbacks(scanRunnable)
         handler.removeCallbacks(retryRunnable)
         handler.removeCallbacks(pauseEndRunnable)
@@ -176,7 +182,7 @@ class ScrollhaltService : AccessibilityService() {
         stats.stop()
         scope?.cancel()
         scope = null
-        ServiceState.setConnected(false)
+        ServiceState.setConnected(false, this)
     }
 
     /** Screen on/off broadcasts are protected: only the system can send them. */
