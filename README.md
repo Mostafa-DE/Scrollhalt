@@ -183,10 +183,12 @@ service is off or not connected).
 - The service ends the pause with a timer and also checks on every Instagram event and
   whenever the app comes to the front. No exact-alarm permission is used.
 - Switching Block Reels off during a pause cancels the pause.
-- If a reel is on screen when the pause ends, it finishes: it plays as an allowed first
-  reel whatever it was opened from, and the next swipe closes it. If the Reels tab is on
-  screen, Scrollhalt taps Home at once. Neither the start nor the end of a pause can make
-  Scrollhalt escalate to the launcher.
+- If a reel is on screen when the pause ends, it finishes, whatever it was opened from,
+  also on the Reels tab feed. The first swipe to another reel afterwards closes it: Back
+  for a single reel, the Home tab on the Reels tab. Resuming is not a new opening, so even a
+  swipe right at the end of the pause counts. Opening the Reels tab again later is blocked
+  as usual. Neither the start nor the end of a pause can make Scrollhalt escalate to the
+  launcher.
 
 ## Usage statistics: how they are measured
 
@@ -298,7 +300,8 @@ memory only and are gone when the app process ends.
 - [ ] Pause for 1 minute: the card turns amber and counts down; Reels open normally; a
       toast says "Reels blocking resumes in 10 s"; afterwards Reels are blocked again.
 - [ ] Pause while watching a Reel: when the pause ends the Reel keeps playing and the
-      next swipe closes it. On the Reels tab, Home is tapped at once.
+      next swipe closes it. On the Reels tab feed the current Reel keeps playing too and the
+      next swipe taps Home.
 - [ ] Resume now ends a pause; switching Block Reels off during a pause cancels it.
 - [ ] Open and leave Instagram: "Instagram opened" and "Instagram time" go up; leaving and
       coming back within 10 s does not add an opening.
