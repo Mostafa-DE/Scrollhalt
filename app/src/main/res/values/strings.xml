@@ -44,10 +44,78 @@
         <item quantity="other">minutes</item>
     </plurals>
 
+    <string name="today_title">Today</string>
+    <string name="today_tracked_since">Tracked since %1$s</string>
+    <string name="today_tracking_paused">Still tracking during the pause</string>
+    <string name="today_not_tracked">Not tracked yet</string>
+    <string name="tile_opened">Instagram opened</string>
+    <plurals name="tile_times">
+        <item quantity="one">time</item>
+        <item quantity="other">times</item>
+    </plurals>
+    <plurals name="tile_sessions">
+        <item quantity="one">%1$d session</item>
+        <item quantity="other">%1$d sessions</item>
+    </plurals>
+    <string name="tile_instagram_time">Instagram time</string>
+    <string name="tile_time_detail">avg %1$s · longest %2$s</string>
+    <string name="tile_reels">Reels viewing</string>
+    <string name="tile_reels_value">≈ %1$s</string>
+    <string name="tile_reels_estimated">estimated</string>
+    <string name="tile_reels_paused">estimated · %1$s in pauses</string>
+    <string name="tile_watched">Reels watched</string>
+    <string name="tile_watched_detail">longest stretch %1$s</string>
+    <string name="duration_hm">%1$d h %2$d m</string>
+    <string name="duration_m">%1$d m</string>
+    <string name="duration_under_minute">&lt; 1 m</string>
+
+    <string name="blocked_title">Blocked today</string>
+    <string name="blocked_reels_tab">Reels tab</string>
+    <string name="blocked_explore">Explore Reels</string>
+    <string name="blocked_next">Next-Reel swipes</string>
+    <string name="blocked_reels_tab_detail">Taps on the covered Reels tab, and Instagram opening on Reels.</string>
+    <string name="blocked_explore_detail">Reels opened from the Explore grid and closed at once.</string>
+    <string name="blocked_next_detail">Swipes from a Reel that was allowed to play to the next one.</string>
+    <string name="blocked_detected">Detected</string>
+    <string name="blocked_detected_detail">Scrollhalt noticed the attempt</string>
+    <string name="blocked_action">Action taken</string>
+    <string name="blocked_action_detail">Back or Home was pressed for you</string>
+    <string name="blocked_confirmed">Confirmed</string>
+    <string name="blocked_confirmed_detail">The Reels screen was gone afterwards</string>
+    <string name="blocked_launcher">Sent to the home screen today: %1$d (all kinds)</string>
+
+    <string name="week_title">Last 7 days</string>
+    <string name="chip_time">Instagram time</string>
+    <string name="chip_opens">Opens</string>
+    <string name="chip_reels">Reels</string>
+    <string name="chip_blocked">Blocked</string>
+    <string name="chart_hm">%1$dh%2$02d</string>
+    <string name="chart_m">%1$dm</string>
+    <string name="chart_na">n/a</string>
+    <string name="week_today">Today</string>
+    <string name="week_not_tracked">Not tracked (service was off)</string>
+
+    <string name="reels_sheet_title">Reels viewing today</string>
+    <string name="reels_caveat">Estimated: time counts while a Reels viewer is open, which does not prove a video played. Videos in the feed and Stories are not counted.</string>
+    <string name="reels_protected">While protected</string>
+    <string name="reels_paused">During pauses</string>
+    <string name="reels_disabled">With blocking off</string>
+    <string name="reels_tab">Reels tab</string>
+    <string name="reels_single">Single Reels (DMs, feed, profiles, Explore)</string>
+    <string name="reels_sessions">Viewer sessions</string>
+    <string name="reels_longest">Longest stretch</string>
+
+    <string name="menu_reset">Reset statistics</string>
+    <string name="reset_title">Reset statistics?</string>
+    <string name="reset_text">All usage numbers are deleted. Your settings and a running pause stay.</string>
+    <string name="reset_confirm">Reset</string>
+    <string name="reset_cancel">Cancel</string>
+
     <string name="how_title">How it works</string>
     <string name="how_tab">The Reels tab is covered so it can\'t be opened.</string>
     <string name="how_explore">Explore Reels close right away.</string>
     <string name="how_shared">A Reel shared with you plays once; swiping closes it.</string>
+    <string name="how_estimates">Usage numbers are estimates. Reels time counts while a Reels viewer is open, not proof that a video played; videos in the feed and Stories are not counted.</string>
     <string name="how_private">Everything stays on your phone. No internet, no data collected.</string>
     <string name="how_disclaimer">Not affiliated with Instagram or Meta.</string>
 

@@ -24,6 +24,7 @@ import androidx.compose.foundation.selection.toggleable
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.DropdownMenu
@@ -39,6 +40,7 @@ import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -57,6 +59,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import app.scrollhalt.R
 import app.scrollhalt.data.AppSettings
+import app.scrollhalt.stats.Dashboard
 
 private val ScreenPadding = 20.dp
 
@@ -65,6 +68,7 @@ fun MainScreen(
     status: ProtectionStatus,
     settings: AppSettings,
     pauseRemainingMillis: Long,
+    board: Dashboard,
     versionName: String,
     onBlockingChange: (Boolean) -> Unit,
     onAllowSingleReelChange: (Boolean) -> Unit,
@@ -73,9 +77,11 @@ fun MainScreen(
     onOpenAccessibility: () -> Unit,
     onOpenAppInfo: () -> Unit,
     onOpenDiagnostics: () -> Unit,
+    onResetStats: () -> Unit,
 ) {
     var showHowItWorks by rememberSaveable { mutableStateOf(false) }
     var showPauseSheet by rememberSaveable { mutableStateOf(false) }
+    var confirmReset by rememberSaveable { mutableStateOf(false) }
     val setupNeeded = status == ProtectionStatus.SERVICE_UNAVAILABLE
 
     Scaffold(containerColor = MaterialTheme.colorScheme.background) { padding ->
@@ -87,7 +93,7 @@ fun MainScreen(
                 .padding(horizontal = ScreenPadding, vertical = 8.dp),
             verticalArrangement = Arrangement.spacedBy(16.dp),
         ) {
-            Header(onHowItWorks = { showHowItWorks = true }, onDiagnostics = onOpenDiagnostics)
+            Header(onHowItWorks = { showHowItWorks = true }, onDiagnostics = onOpenDiagnostics, onResetStats = { confirmReset = true })
             HeroCard(
                 status = status,
                 pauseRemainingMillis = pauseRemainingMillis,
@@ -102,6 +108,7 @@ fun MainScreen(
                     ActionRow(R.drawable.ic_battery, R.string.setup_samsung_title, R.string.setup_samsung_detail, onOpenAppInfo)
                 }
             }
+            DashboardSection(board, paused = status == ProtectionStatus.PAUSED)
             ControlsCard(settings, enabled = !setupNeeded, onBlockingChange, onAllowSingleReelChange)
             Text(
                 text = stringResource(R.string.version_label, versionName),
@@ -114,6 +121,15 @@ fun MainScreen(
     }
 
     if (showHowItWorks) HowItWorksSheet(onDismiss = { showHowItWorks = false })
+    if (confirmReset) {
+        ResetDialog(
+            onConfirm = {
+                confirmReset = false
+                onResetStats()
+            },
+            onDismiss = { confirmReset = false },
+        )
+    }
     if (showPauseSheet && status == ProtectionStatus.ACTIVE) {
         PauseSheet(
             onPick = { minutes ->
@@ -126,7 +142,7 @@ fun MainScreen(
 }
 
 @Composable
-private fun Header(onHowItWorks: () -> Unit, onDiagnostics: () -> Unit) {
+private fun Header(onHowItWorks: () -> Unit, onDiagnostics: () -> Unit, onResetStats: () -> Unit) {
     var menuOpen by rememberSaveable { mutableStateOf(false) }
     Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.fillMaxWidth().height(56.dp)) {
         Box(
@@ -158,6 +174,13 @@ private fun Header(onHowItWorks: () -> Unit, onDiagnostics: () -> Unit) {
                     onClick = {
                         menuOpen = false
                         onDiagnostics()
+                    },
+                )
+                DropdownMenuItem(
+                    text = { Text(stringResource(R.string.menu_reset)) },
+                    onClick = {
+                        menuOpen = false
+                        onResetStats()
                     },
                 )
             }
@@ -366,6 +389,7 @@ private fun HowItWorksSheet(onDismiss: () -> Unit) {
                 R.drawable.ic_eye_off to R.string.how_tab,
                 R.drawable.ic_close_circle to R.string.how_explore,
                 R.drawable.ic_play_once to R.string.how_shared,
+                R.drawable.ic_chart to R.string.how_estimates,
                 R.drawable.ic_lock to R.string.how_private,
             ).forEach { (icon, text) ->
                 Row(verticalAlignment = Alignment.CenterVertically) {
@@ -380,4 +404,16 @@ private fun HowItWorksSheet(onDismiss: () -> Unit) {
             )
         }
     }
+}
+
+@Composable
+private fun ResetDialog(onConfirm: () -> Unit, onDismiss: () -> Unit) {
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text(stringResource(R.string.reset_title)) },
+        text = { Text(stringResource(R.string.reset_text)) },
+        confirmButton = { TextButton(onClick = onConfirm) { Text(stringResource(R.string.reset_confirm)) } },
+        dismissButton = { TextButton(onClick = onDismiss) { Text(stringResource(R.string.reset_cancel)) } },
+        containerColor = MaterialTheme.colorScheme.surface,
+    )
 }

@@ -23,10 +23,14 @@ import app.scrollhalt.BuildConfig
 import app.scrollhalt.data.AppSettings
 import app.scrollhalt.data.DeviceClock
 import app.scrollhalt.data.SettingsRepository
+import app.scrollhalt.data.StatsRepository
 import app.scrollhalt.debug.DebugLog
 import app.scrollhalt.protect.PauseState
 import app.scrollhalt.protect.protectionMode
 import app.scrollhalt.service.ServiceState
+import app.scrollhalt.stats.Days
+import app.scrollhalt.stats.StatsState
+import app.scrollhalt.stats.dashboard
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 
@@ -35,26 +39,30 @@ class MainActivity : ComponentActivity() {
         super.onCreate(savedInstanceState)
         enableEdgeToEdge()
         val repository = SettingsRepository(this)
+        val statsRepository = StatsRepository(this)
         setContent {
             ScrollhaltTheme {
-                App(repository)
+                App(repository, statsRepository)
             }
         }
     }
 }
 
 @Composable
-private fun App(repository: SettingsRepository) {
+private fun App(repository: SettingsRepository, statsRepository: StatsRepository) {
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
     val settings by repository.settings.collectAsStateWithLifecycle(initialValue = AppSettings())
     val connected by ServiceState.connected.collectAsStateWithLifecycle()
+    val stats by statsRepository.stats.collectAsStateWithLifecycle(initialValue = StatsState())
     var enabled by remember { mutableStateOf(isServiceEnabled(context)) }
     var showDebug by rememberSaveable { mutableStateOf(false) }
     val clock = remember { DeviceClock(context) }
     var now by remember { mutableStateOf(clock.now()) }
     val pause = settings.pause
     val lifecycleOwner = LocalLifecycleOwner.current
+    val today = Days.today(now)
+    val board = remember(stats, today) { dashboard(stats, today) }
 
     LifecycleResumeEffect(Unit) {
         enabled = isServiceEnabled(context)
@@ -96,6 +104,7 @@ private fun App(repository: SettingsRepository) {
             status = protectionStatus(enabled, connected, protectionMode(settings.blockingEnabled, pause, now)),
             settings = settings,
             pauseRemainingMillis = pause?.remaining(now) ?: 0,
+            board = board,
             versionName = BuildConfig.VERSION_NAME,
             onBlockingChange = { scope.launch { repository.setBlockingEnabled(it) } },
             onAllowSingleReelChange = { scope.launch { repository.setAllowSingleReel(it) } },
@@ -106,6 +115,7 @@ private fun App(repository: SettingsRepository) {
             onOpenAccessibility = { context.startActivity(accessibilitySettingsIntent()) },
             onOpenAppInfo = { context.startActivity(appInfoIntent(context)) },
             onOpenDiagnostics = { showDebug = true },
+            onResetStats = { scope.launch { statsRepository.reset(clock.now(), tracking = connected) } },
         )
     }
 }
