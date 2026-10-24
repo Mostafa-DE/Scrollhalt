@@ -27,8 +27,9 @@ import kotlin.math.roundToInt
  * Scrollhalt's messages over Instagram: a small pill below the status bar, drawn as an
  * accessibility overlay (no permission). Toasts are not used because Android drops them for
  * apps whose notifications are off, and Scrollhalt has no notification permission. The banner
- * never takes touches or focus, shows one message at a time (a new one replaces it) and hides
- * itself after [VISIBLE_MS].
+ * never takes touches or focus, shows one message at a time (a new one replaces it in place)
+ * and hides itself after [VISIBLE_MS], except a message that is [hold]ed (the pause countdown).
+ * What it shows or skips is logged (resource names only).
  */
 class Banner(private val service: AccessibilityService) {
     private val windowManager: WindowManager = service.getSystemService(WindowManager::class.java)
@@ -38,23 +39,36 @@ class Banner(private val service: AccessibilityService) {
     private var view: View? = null
     private var label: TextView? = null
 
-    /** Shows [message], replacing the one on screen; the same message at most every [MIN_INTERVAL_MS]. */
+    /** Shows [message] for [VISIBLE_MS], replacing the one on screen; the same message at most every [MIN_INTERVAL_MS]. */
     fun show(@StringRes message: Int) {
+        val name = service.resources.getResourceEntryName(message)
         val now = SystemClock.uptimeMillis()
         val last = lastShownAt[message]
-        if (last != null && now - last < MIN_INTERVAL_MS) return
+        if (last != null && now - last < MIN_INTERVAL_MS) {
+            Log.d(LOG_TAG, "banner $name skipped: shown ${now - last} ms ago")
+            return
+        }
         lastShownAt[message] = now
+        if (!display(service.getString(message))) return
+        Log.d(LOG_TAG, "banner $name shown")
+        handler.postDelayed(fadeOutRunnable, VISIBLE_MS)
+    }
+
+    /** Shows [text] until it is replaced or hidden: no timer and no rate limit. */
+    fun hold(text: String): Boolean = display(text)
+
+    /** Puts [text] on screen, in place if a banner is showing; false if the window could not be added. */
+    private fun display(text: String): Boolean {
+        handler.removeCallbacks(fadeOutRunnable)
         val current = view
         val currentLabel = label
         if (current != null && currentLabel != null) {
-            currentLabel.setText(message)
+            currentLabel.text = text
             current.animate().cancel()
             current.alpha = 1f
-        } else if (!add(message)) {
-            return
+            return true
         }
-        handler.removeCallbacks(fadeOutRunnable)
-        handler.postDelayed(fadeOutRunnable, VISIBLE_MS)
+        return add(text)
     }
 
     fun hide() {
@@ -75,7 +89,7 @@ class Banner(private val service: AccessibilityService) {
         current.animate().alpha(0f).setDuration(FADE_OUT_MS).withEndAction { if (view === current) hide() }.start()
     }
 
-    private fun add(@StringRes message: Int): Boolean {
+    private fun add(message: String): Boolean {
         val text = TextView(service).apply {
             setText(message)
             setTextColor(service.getColor(R.color.banner_text))
@@ -110,7 +124,7 @@ class Banner(private val service: AccessibilityService) {
             root.animate().alpha(1f).setDuration(FADE_IN_MS).start()
             true
         } catch (e: RuntimeException) {
-            Log.w(LOG_TAG, "banner failed: ${e.javaClass.simpleName}")
+            Log.w(LOG_TAG, "banner not added: ${e.javaClass.simpleName}")
             false
         }
     }

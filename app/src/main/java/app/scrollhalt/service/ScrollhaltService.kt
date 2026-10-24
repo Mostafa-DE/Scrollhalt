@@ -35,6 +35,7 @@ import app.scrollhalt.detect.UiNode
 import app.scrollhalt.detect.onScreenIds
 import app.scrollhalt.protect.Clock
 import app.scrollhalt.protect.Moment
+import app.scrollhalt.protect.PauseCountdown
 import app.scrollhalt.protect.PauseState
 import app.scrollhalt.protect.ProtectionMode
 import app.scrollhalt.protect.protectionMode
@@ -78,13 +79,15 @@ class ScrollhaltService : AccessibilityService() {
             schedulePauseTimers()
         }
     }
-    private val headsUpRunnable = Runnable { safely("pause heads-up") { pauseHeadsUp() } }
+    private val countdownRunnable = Runnable { safely("pause countdown") { countdownTick() } }
     private var scanPending = false
     /** Between onServiceConnected and the first shutdown(); shutdown runs once per connection. */
     private var running = false
     private var scope: CoroutineScope? = null
     private var cover: ReelsTabCover? = null
     private var banner: Banner? = null
+    /** The banner is showing the pause countdown. */
+    private var countdownShowing = false
     private val clock: Clock by lazy { DeviceClock(this) }
     private val settingsRepository: SettingsRepository by lazy { SettingsRepository(this) }
     private val stats: StatsKeeper by lazy { StatsKeeper.shared(applicationContext) }
@@ -175,7 +178,8 @@ class ScrollhaltService : AccessibilityService() {
         handler.removeCallbacks(scanRunnable)
         handler.removeCallbacks(retryRunnable)
         handler.removeCallbacks(pauseEndRunnable)
-        handler.removeCallbacks(headsUpRunnable)
+        handler.removeCallbacks(countdownRunnable)
+        countdownShowing = false
         scanPending = false
         cover?.hide()
         banner?.hide()
@@ -256,6 +260,7 @@ class ScrollhaltService : AccessibilityService() {
         inInstagram = false
         cover?.hide()
         banner?.hide()
+        countdownShowing = false
         log("window", "left Instagram", apply(PolicyInput.LeftApp(now())), always = true)
     }
 
@@ -327,7 +332,13 @@ class ScrollhaltService : AccessibilityService() {
                 if (inInstagram) leftInstagram()
                 return
             }
+            val entered = !inInstagram
             inInstagram = true
+            // Coming back during the last seconds of a pause shows the countdown at once.
+            if (entered && mode() == ProtectionMode.PAUSED) {
+                handler.removeCallbacks(countdownRunnable)
+                countdownTick()
+            }
             if (screenOn) stats.update { instagramInFront(it) }
             val snapshot = NodeSnapshot.of(root) ?: return
             if (verbose()) dumpTree(snapshot)
@@ -384,6 +395,9 @@ class ScrollhaltService : AccessibilityService() {
         if (previous == null || previous == active) return
         if (active) {
             log("protection", "-", apply(PolicyInput.ProtectionResumed(now())), always = true)
+            // Replaces the countdown in place when it is showing.
+            handler.removeCallbacks(countdownRunnable)
+            countdownShowing = false
             if (previousMode == ProtectionMode.PAUSED) showBanner(R.string.banner_protection_back)
             if (inInstagram) scheduleScan()
         } else {
@@ -405,19 +419,47 @@ class ScrollhaltService : AccessibilityService() {
         if (changed) stats.write()
     }
 
-    /** Timers for the end of a pause and the heads-up before it; none without a pause. */
+    /** Timers for the end of a pause and the countdown before it; none without a pause. */
     private fun schedulePauseTimers() {
         handler.removeCallbacks(pauseEndRunnable)
-        handler.removeCallbacks(headsUpRunnable)
-        val pause = settings.pause?.takeIf { settings.blockingEnabled } ?: return
-        val remaining = pause.remaining(clock.now())
-        if (remaining <= 0) return
+        handler.removeCallbacks(countdownRunnable)
+        val remaining = settings.pause?.takeIf { settings.blockingEnabled }?.remaining(clock.now()) ?: 0
+        if (remaining <= 0) {
+            stopCountdown()
+            return
+        }
+        val countdownIn = PauseCountdown.nextTickMillis(remaining).takeIf { PauseCountdown.seconds(remaining) == null } ?: 0
         handler.postDelayed(pauseEndRunnable, remaining)
-        if (remaining > HEADS_UP_MS) handler.postDelayed(headsUpRunnable, remaining - HEADS_UP_MS)
+        handler.postDelayed(countdownRunnable, countdownIn)
+        Log.d(LOG_TAG, "pause ends in $remaining ms, countdown in $countdownIn ms")
     }
 
-    private fun pauseHeadsUp() {
-        if (mode() == ProtectionMode.PAUSED) showBanner(R.string.banner_resumes_soon)
+    /**
+     * One step of the countdown banner ("Reels blocking resumes in 9 s"), held on screen while
+     * Instagram is in front during the last 10 s of a pause. Ticks once a second only then.
+     */
+    private fun countdownTick() {
+        val remaining = settings.pause?.takeIf { mode() == ProtectionMode.PAUSED }?.remaining(clock.now()) ?: 0
+        if (remaining <= 0) {
+            stopCountdown()
+            return
+        }
+        val seconds = PauseCountdown.seconds(remaining)
+        if (seconds != null) {
+            val front = instagramInFront()
+            Log.d(LOG_TAG, "countdown $seconds s mode=${mode()} inInstagram=$inInstagram front=$front")
+            if (front) {
+                countdownShowing = banner?.hold(getString(R.string.banner_resumes_in, seconds)) == true
+            } else {
+                stopCountdown()
+            }
+        }
+        handler.postDelayed(countdownRunnable, PauseCountdown.nextTickMillis(remaining))
+    }
+
+    private fun stopCountdown() {
+        if (countdownShowing) banner?.hide()
+        countdownShowing = false
     }
 
     private fun apply(input: PolicyInput): PolicyResult {
@@ -542,7 +584,11 @@ class ScrollhaltService : AccessibilityService() {
 
     /** Messages appear over Instagram only (see [Banner]). */
     private fun showBanner(@StringRes message: Int) {
-        if (instagramInFront()) banner?.show(message)
+        if (instagramInFront()) {
+            banner?.show(message)
+        } else {
+            Log.d(LOG_TAG, "banner ${resources.getResourceEntryName(message)} skipped: Instagram not in front")
+        }
     }
 
     private fun describe(classification: Classification): String = buildString {
@@ -584,8 +630,5 @@ class ScrollhaltService : AccessibilityService() {
 
     private companion object {
         const val SCAN_DELAY_MS: Long = 100
-
-        /** The "blocking resumes" message comes this long before a pause ends. */
-        const val HEADS_UP_MS: Long = 10_000
     }
 }

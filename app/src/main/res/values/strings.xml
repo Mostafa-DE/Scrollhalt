@@ -7,7 +7,7 @@
 
     <string name="banner_blocked">Reels blocked</string>
     <string name="banner_tab_hidden">Reels hidden by Scrollhalt</string>
-    <string name="banner_resumes_soon">Reels blocking resumes in 10 s</string>
+    <string name="banner_resumes_in">Reels blocking resumes in %1$d s</string>
     <string name="banner_protection_back">Reels blocking is back on</string>
 
     <string name="menu_more">More options</string>

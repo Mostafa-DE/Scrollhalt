@@ -170,12 +170,15 @@ Flow:
 
 ## Messages
 
-Scrollhalt's messages ("Reels blocked", "Reels hidden by Scrollhalt", the pause heads-up and
+Scrollhalt's messages ("Reels blocked", "Reels hidden by Scrollhalt", the pause countdown and
 "Reels blocking is back on") appear in a small banner below the status bar, drawn as an
 accessibility overlay like the Reels cover. Toasts are not used: Android drops them for apps
 whose notifications are off, and Scrollhalt asks for no notification permission. The banner
 never takes touches, shows one message at a time, disappears after 2.5 s, shows the same
-message at most every 5 s, and only appears while Instagram is in front.
+message at most every 5 s, and only appears while Instagram is in front. During the last 10 s
+of a pause it stays on screen and counts down ("Reels blocking resumes in 9 s", updated every
+second, only during those 10 s), then turns into "Reels blocking is back on". Opening
+Instagram during those seconds shows the countdown at once.
 
 ## Pause and protection states
 
@@ -307,7 +310,8 @@ memory only and are gone when the app process ends.
 - [ ] Switch "Allow reels shared in DMs" off: a DM reel closes right away.
 - [ ] Reboot the phone: the status card shows Protecting again without setup.
 - [ ] Pause for 1 minute: the card turns amber and counts down; Reels open normally; a
-      banner says "Reels blocking resumes in 10 s", then "Reels blocking is back on".
+      banner counts down "Reels blocking resumes in 10 s" to 1 s, then says "Reels blocking
+      is back on".
 - [ ] Pause while watching a Reel: when the pause ends the Reel keeps playing and the
       next swipe closes it. On the Reels tab feed the current Reel keeps playing too and the
       next swipe taps Home.
