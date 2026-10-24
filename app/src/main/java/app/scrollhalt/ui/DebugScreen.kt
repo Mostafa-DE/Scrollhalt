@@ -2,7 +2,6 @@ package app.scrollhalt.ui
 
 import android.content.ClipData
 import android.content.ClipboardManager
-import android.widget.Toast
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
@@ -18,11 +17,15 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
+import androidx.compose.material3.SnackbarHost
+import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.painterResource
@@ -34,6 +37,7 @@ import app.scrollhalt.debug.DebugEntry
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
+import kotlinx.coroutines.launch
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -49,7 +53,11 @@ fun DebugScreen(
     val timeFormat = SimpleDateFormat("HH:mm:ss.SSS", Locale.ROOT)
     val clipLabel = stringResource(R.string.diag_clip_label)
     val copiedMessage = stringResource(R.string.diag_copied)
+    // A snackbar, not a toast: Android drops toasts of apps whose notifications are off.
+    val snackbarHost = remember { SnackbarHostState() }
+    val scope = rememberCoroutineScope()
     Scaffold(
+        snackbarHost = { SnackbarHost(snackbarHost) },
         containerColor = MaterialTheme.colorScheme.background,
         topBar = {
             TopAppBar(
@@ -86,7 +94,7 @@ fun DebugScreen(
                                 onClick = {
                                     val clipboard = context.getSystemService(ClipboardManager::class.java)
                                     clipboard.setPrimaryClip(ClipData.newPlainText(clipLabel, snapshot.joinToString("\n")))
-                                    Toast.makeText(context, copiedMessage, Toast.LENGTH_SHORT).show()
+                                    scope.launch { snackbarHost.showSnackbar(copiedMessage) }
                                 },
                             ) { Text(stringResource(R.string.diag_copy)) }
                             FilledTonalButton(onClick = onClear, shape = MaterialTheme.shapes.medium, modifier = Modifier.heightIn(min = 48.dp)) {
