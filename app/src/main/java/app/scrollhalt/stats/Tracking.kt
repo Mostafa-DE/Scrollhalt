@@ -93,12 +93,15 @@ fun StatsState.reset(now: Moment, tracking: Boolean): StatsState = copy(
 fun StatsState.adoptReset(stored: StatsState, now: Moment): StatsState =
     copy(generation = stored.generation, days = stored.days, live = live.restarted(now))
 
-/** Nothing before [now] is counted any more; an open session counts as one on today. */
+/**
+ * Nothing before [now] is counted any more. A session in progress, or one away within its
+ * grace gap, counts as a new session of today; an open viewer starts over.
+ */
 private fun LiveRecord.restarted(now: Moment): LiveRecord {
     val mark = now.mark()
     return copy(
-        instagram = instagram?.let { if (it.countedUntil == null) it else it.copy(countedUntil = mark, dayParts = emptyMap()) },
-        viewer = viewer?.copy(countedUntil = mark, dayParts = emptyMap()),
+        instagram = instagram?.let { it.copy(countedUntil = it.countedUntil?.let { mark }, dayParts = emptyMap()) },
+        viewer = viewer?.copy(countedUntil = mark, dayParts = emptyMap(), totalMillis = 0, counted = false),
         trackedUntil = trackedUntil?.let { mark },
         openPause = openPause?.copy(countedUntil = mark),
         attempts = AttemptMarks(),

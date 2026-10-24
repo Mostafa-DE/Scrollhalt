@@ -198,6 +198,26 @@ class TrackingTest {
     }
 
     @Test
+    fun `a session in the grace gap counts as a new session of the reset day`() {
+        // Codex 5: the away session kept its pre-reset day part, so after a quick return it
+        // had time but no session and an old longest.
+        val away = StatsState().serviceStarted(clock.now()).instagramInFront(clock.now()).instagramAway(clock.minutes(5))
+        val reset = away.reset(clock.seconds(2), tracking = true)
+        val after = reset.instagramInFront(clock.seconds(3)).instagramAway(clock.minutes(1))
+        assertEquals(InstagramDay(openings = 0, sessions = 1, timeMillis = MINUTE, longestMillis = MINUTE), after.day(OCT_24).instagram)
+    }
+
+    @Test
+    fun `a viewer open across a reset counts as a session of the reset day`() {
+        val open = StatsState().viewerSeen(clock.now(), reelsTab, ProtectionMode.PAUSED).countViewer(clock.minutes(3))
+        val reset = open.reset(clock.now(), tracking = true)
+        val after = reset.viewerGone(clock.minutes(1)).day(OCT_24).reels
+        assertEquals(MINUTE, after.pausedMillis)
+        assertEquals(1, after.sessions)
+        assertEquals(MINUTE, after.longestMillis)
+    }
+
+    @Test
     fun `the service adopts a reset made by the app`() {
         val service = StatsState().serviceStarted(clock.now()).instagramInFront(clock.now()).countAll(clock.minutes(5))
         val stored = service.reset(clock.seconds(10), tracking = true)
