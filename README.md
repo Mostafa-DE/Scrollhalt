@@ -17,7 +17,11 @@ Stories, DMs, profiles, Explore and search all work as normal.
   ends, then blocking turns back on by itself (with a heads-up 10 s before).
 - A **usage dashboard**: how often and how long Instagram was open today, estimated Reels
   viewing time, Reels watched, blocked attempts, and a 7-day chart.
-- No permissions, no internet access, nothing sent anywhere. Usage statistics stay in an
+- **Turn off for these apps**: for banking apps that refuse to run while Scrollhalt is
+  on. Scrollhalt switches itself off while such an app is open and comes back 5 minutes
+  later (see [below](#turn-off-for-these-apps-banking-apps)).
+- No internet access, nothing sent anywhere. The only permissions are for Turn off for
+  these apps, and each is optional (see below). Usage statistics stay in an
   app-private file on the phone for 30 days and are not backed up. The accessibility
   service reads view ids (internal names like `clips_viewer_view_pager`), never
   text, captions, usernames or messages.
@@ -137,8 +141,9 @@ Signals:
   to the first scan of the viewer, or at most 300 ms after it (no swipe lands that fast),
   are Instagram positioning the pager: their index is the confirmed start index, and any
   other index is a swipe. When the first scroll comes later, the page identity decides;
-- **window changes of other apps**, only to notice that Instagram is no longer in front
-  (package name only). This is why the service has no package filter.
+- **window changes of other apps**, only to notice that Instagram is no longer in front,
+  or that an app on the Turn off for these apps list is (package name only). This is why
+  the service has no package filter.
 
 Flow:
 
@@ -173,7 +178,8 @@ Flow:
 Scrollhalt's messages ("Reels blocked", "Reels hidden by Scrollhalt", the pause countdown and
 "Reels blocking is back on") appear in a small banner below the status bar, drawn as an
 accessibility overlay like the Reels cover. Toasts are not used: Android drops them for apps
-whose notifications are off, and Scrollhalt asks for no notification permission. The banner
+whose notifications are off (Scrollhalt asks for notification permission only for the Turn off
+for these apps reminder, and only when you tap Allow notifications). The banner
 never takes touches, shows one message at a time, disappears after 2.5 s, shows the same
 message at most every 5 s, and only appears while Instagram is in front. During the last 10 s
 of a pause it stays on screen and counts down ("Reels blocking resumes in 9 s", updated every
@@ -182,10 +188,11 @@ Instagram during those seconds shows the countdown at once.
 
 ## Pause and protection states
 
-The status card shows one of four states: **Protecting** (Block Reels on), **Paused**
+The status card shows one of five states: **Protecting** (Block Reels on), **Paused**
 (a timed pause runs, with a countdown and **Resume now**), **Blocking off** (the Block
-Reels switch is off; tap the card to turn it on) and **Setup needed** (the accessibility
-service is off or not connected).
+Reels switch is off; tap the card to turn it on), **Off for &lt;app&gt;** (see
+[Turn off for these apps](#turn-off-for-these-apps-banking-apps)) and **Setup needed** (the
+accessibility service is off or not connected).
 
 - **Pause protection** on the Protecting card opens a sheet with 1, 5, 10 and 15 minutes.
   The pause is stored with its wall-clock end, its `elapsedRealtime` end and the boot
@@ -201,6 +208,61 @@ service is off or not connected).
   swipe right at the end of the pause counts. Opening the Reels tab again later is blocked
   as usual. Neither the start nor the end of a pause can make Scrollhalt escalate to the
   launcher.
+
+## Turn off for these apps (banking apps)
+
+Some banking apps refuse to run while an accessibility app installed outside an app store is
+switched on ("Detected Application(s): Scrollhalt"). Scrollhalt does not try to hide from
+that check. Instead it really switches its accessibility service off while such an app is
+open, and comes back afterwards.
+
+1. In Scrollhalt, **Turn off for these apps** opens a list of the apps with a launcher icon
+   (with a search field). Tick the banking apps. The list is empty by default.
+2. When one of them comes to the front (the service reads only the package name of the
+   app in front, never its screen), Scrollhalt stores when it switched off and when it comes
+   back, sets an alarm 5 minutes later, removes the Reels cover and banner, closes the usage
+   statistics (the time it is off counts as not tracked) and switches its service off
+   (`disableSelf()`). Logcat (`adb logcat -s Scrollhalt`) says which app it switched off for.
+3. After 5 minutes:
+   - With the one-time adb grant below, it **turns itself back on**: it adds itself to
+     Android's list of enabled accessibility services, keeping the others.
+   - Without it, it posts a notification **"Scrollhalt is off"**; tapping it opens
+     Accessibility settings, where you switch Scrollhalt on. Without notification permission
+     nothing is posted, and the Scrollhalt screen shows the state.
+4. When the service is back and the banking app is still in front, it switches off again
+   for another 5 minutes. It never acts on that app's screen.
+
+The main screen then shows **Off for &lt;app&gt;** with **Back on at HH:MM** and
+**Turn back on now** (direct with the grant, otherwise it opens Accessibility settings). The
+Turn off for these apps row says **Turns back on by itself** with the grant, or **Reminds
+you to turn it back on**, with an **Allow notifications** button: that is the only place
+Scrollhalt asks for notification permission.
+
+One-time grant, so Scrollhalt can turn itself back on (with the phone connected over adb,
+see [Install over wireless adb](#install-over-wireless-adb)):
+
+```sh
+adb -s <serial> shell pm grant app.scrollhalt android.permission.WRITE_SECURE_SETTINGS
+adb -s <serial> shell dumpsys package app.scrollhalt | grep WRITE_SECURE   # granted=true
+```
+
+It stays granted across reboots and updates, and is removed when Scrollhalt is uninstalled.
+Without it everything works, but you turn Scrollhalt back on yourself after the reminder.
+
+The comeback alarm is inexact (no exact-alarm permission), so in deep sleep Android may
+deliver it a few minutes late. After a reboot it is set again; the wall clock then decides,
+capped at 5 minutes, like a pause.
+
+Permissions, all only for this feature:
+
+- `WRITE_SECURE_SETTINGS`: turn the accessibility service back on by itself. Android grants
+  it only over adb (the command above); an app can never get it on its own.
+- `POST_NOTIFICATIONS`: the "Scrollhalt is off" reminder when it cannot turn itself back on.
+  Asked for only from the Allow notifications button, never at start.
+- `RECEIVE_BOOT_COMPLETED`: set the comeback alarm again after a reboot while one is pending.
+
+To list the apps it uses a `MAIN`/`LAUNCHER` package visibility query, not
+`QUERY_ALL_PACKAGES`. Still no internet permission.
 
 ## Usage statistics: how they are measured
 
@@ -290,6 +352,10 @@ memory only and are gone when the app process ends.
 - A shared reel closed because "Shared Reels play once" is off is not counted in any
   Blocked category.
 - Like the blocking itself, all statistics depend on Instagram's view ids.
+- Turn off for these apps: if Scrollhalt is force-stopped while it is off, Android drops
+  its comeback alarm; open Scrollhalt and tap Turn back on now. Turning itself back on
+  writes Android's accessibility settings; whether every Android version binds the service
+  again from that write is only known from testing on the phone.
 
 ## Manual test checklist
 
@@ -321,6 +387,10 @@ memory only and are gone when the app process ends.
 - [ ] Tap the covered Reels tab: "Reels tab" in Blocked today goes up by one per burst.
 - [ ] Reset statistics clears the numbers; the pause and settings stay.
 - [ ] Debug log shows the decisions; Copy snapshot puts only view ids on the clipboard.
+- [ ] Turn off for these apps: tick a banking app; open it: it runs, Scrollhalt shows
+      "Off for &lt;app&gt;" with the comeback time. With the adb grant it is back after 5 minutes
+      (and off again if the app is still open); without it the reminder appears.
+- [ ] Turn back on now brings Scrollhalt back (or opens Accessibility settings).
 
 ## License and credits
 
