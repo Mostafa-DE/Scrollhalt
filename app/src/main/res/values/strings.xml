@@ -28,6 +28,10 @@
     <string name="status_disabled_action">Turn on Block Reels</string>
     <string name="status_setup">Setup needed</string>
     <string name="status_setup_button">Turn on Scrollhalt</string>
+    <string name="status_off_for">Off for %1$s</string>
+    <string name="status_off_back_at">Back on at %1$s</string>
+    <string name="status_off_due">Turn it back on to block Reels again</string>
+    <string name="status_off_turn_on">Turn back on now</string>
 
     <string name="setup_restricted_title">Allow restricted settings</string>
     <string name="setup_restricted_detail">If the switch is greyed out</string>
@@ -37,6 +41,17 @@
     <string name="setting_block">Block Reels</string>
     <string name="setting_single_reel">Shared Reels play once</string>
     <string name="setting_single_reel_detail">Reels sent to you in DMs</string>
+    <string name="setting_turn_off">Turn off for these apps</string>
+    <string name="setting_turn_off_detail">For apps that refuse to run while Scrollhalt is on, like banking apps</string>
+    <string name="setting_turn_off_by_itself">Turns back on by itself</string>
+    <string name="setting_turn_off_reminds">Reminds you to turn it back on</string>
+    <string name="setting_turn_off_allow_notifications">Allow notifications</string>
+    <plurals name="turn_off_sheet_detail">
+        <item quantity="one">While one of these apps is open, Scrollhalt switches its accessibility service off so the app can run, and comes back %1$d minute later.</item>
+        <item quantity="other">While one of these apps is open, Scrollhalt switches its accessibility service off so the app can run, and comes back %1$d minutes later.</item>
+    </plurals>
+    <string name="turn_off_search">Search apps</string>
+    <string name="turn_off_none_found">No apps found</string>
 
     <string name="version_label">v%1$s</string>
 

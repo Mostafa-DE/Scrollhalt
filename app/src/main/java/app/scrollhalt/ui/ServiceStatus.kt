@@ -20,9 +20,14 @@ enum class ProtectionStatus {
 
     /** The accessibility service is off or not connected: setup needed. */
     SERVICE_UNAVAILABLE,
+
+    /** Scrollhalt switched itself off while an app on its list is used; it comes back by itself or asks to. */
+    OFF_FOR_APP,
 }
 
-fun protectionStatus(enabled: Boolean, connected: Boolean, mode: ProtectionMode): ProtectionStatus = when {
+/** [offForApp]: a switch-off for an app is recorded; it ends when the service connects again. */
+fun protectionStatus(enabled: Boolean, connected: Boolean, mode: ProtectionMode, offForApp: Boolean = false): ProtectionStatus = when {
+    offForApp && !(enabled && connected) -> ProtectionStatus.OFF_FOR_APP
     !enabled || !connected -> ProtectionStatus.SERVICE_UNAVAILABLE
     mode == ProtectionMode.DISABLED -> ProtectionStatus.DISABLED
     mode == ProtectionMode.PAUSED -> ProtectionStatus.PAUSED

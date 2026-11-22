@@ -1,10 +1,18 @@
 package app.scrollhalt.ui
 
+import android.Manifest
+import android.app.NotificationManager
+import android.content.Context
+import android.content.pm.PackageManager
+import android.os.Build
 import android.os.Bundle
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.BackHandler
+import androidx.activity.compose.LocalActivity
+import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -27,6 +35,7 @@ import app.scrollhalt.data.StatsRepository
 import app.scrollhalt.debug.DebugLog
 import app.scrollhalt.protect.PauseState
 import app.scrollhalt.protect.protectionMode
+import app.scrollhalt.service.Comeback
 import app.scrollhalt.service.ServiceState
 import app.scrollhalt.stats.Days
 import app.scrollhalt.stats.StatsState
@@ -51,11 +60,14 @@ class MainActivity : ComponentActivity() {
 @Composable
 private fun App(repository: SettingsRepository, statsRepository: StatsRepository) {
     val context = LocalContext.current
+    val activity = LocalActivity.current
     val scope = rememberCoroutineScope()
     val settings by repository.settings.collectAsStateWithLifecycle(initialValue = AppSettings())
     val connected by ServiceState.connected.collectAsStateWithLifecycle()
     val stats by statsRepository.stats.collectAsStateWithLifecycle(initialValue = StatsState())
     var enabled by remember { mutableStateOf(isServiceEnabled(context)) }
+    var turnsBackOnByItself by remember { mutableStateOf(Comeback.canTurnBackOn(context)) }
+    var notificationsAllowed by remember { mutableStateOf(areNotificationsOn(context)) }
     var showDebug by rememberSaveable { mutableStateOf(false) }
     val clock = remember { DeviceClock(context) }
     var now by remember { mutableStateOf(clock.now()) }
@@ -63,9 +75,29 @@ private fun App(repository: SettingsRepository, statsRepository: StatsRepository
     val lifecycleOwner = LocalLifecycleOwner.current
     val today = Days.today(now)
     val board = remember(stats, today) { dashboard(stats, today) }
+    val offForApp = settings.offForApp
+    val offForLabel = remember(offForApp?.packageName) {
+        offForApp?.packageName?.let { packageName ->
+            try {
+                context.packageManager.run { getApplicationLabel(getApplicationInfo(packageName, 0)).toString() }
+            } catch (_: PackageManager.NameNotFoundException) {
+                packageName
+            }
+        }
+    }
+    // Asked only from the Allow notifications button. Once Android stops showing the dialog
+    // (denied twice), App info is opened instead, where notifications can be allowed.
+    val notificationPermission = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { granted ->
+        notificationsAllowed = areNotificationsOn(context)
+        if (!granted && activity?.shouldShowRequestPermissionRationale(Manifest.permission.POST_NOTIFICATIONS) == false) {
+            context.startActivity(appInfoIntent(context))
+        }
+    }
 
     LifecycleResumeEffect(Unit) {
         enabled = isServiceEnabled(context)
+        turnsBackOnByItself = Comeback.canTurnBackOn(context)
+        notificationsAllowed = areNotificationsOn(context)
         now = clock.now()
         onPauseOrDispose { }
     }
@@ -105,17 +137,32 @@ private fun App(repository: SettingsRepository, statsRepository: StatsRepository
         )
     } else {
         MainScreen(
-            status = protectionStatus(enabled, connected, protectionMode(settings.blockingEnabled, pause, now)),
+            status = protectionStatus(enabled, connected, protectionMode(settings.blockingEnabled, pause, now), offForApp = offForApp != null),
             settings = settings,
             pauseRemainingMillis = pause?.remaining(now) ?: 0,
+            offForLabel = offForLabel,
+            backOnAtMillis = offForApp?.takeIf { !it.isDue(now) }?.backAtWall(now),
+            turnsBackOnByItself = turnsBackOnByItself,
+            notificationsAllowed = notificationsAllowed,
             board = board,
             versionName = BuildConfig.VERSION_NAME,
             onBlockingChange = { scope.launch { repository.setBlockingEnabled(it) } },
             onAllowSingleReelChange = { scope.launch { repository.setAllowSingleReel(it) } },
+            onTurnOffForChange = { packageName, listed -> scope.launch { repository.setTurnOffFor(packageName, listed) } },
+            onAllowNotifications = {
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+                    notificationPermission.launch(Manifest.permission.POST_NOTIFICATIONS)
+                } else {
+                    context.startActivity(appInfoIntent(context))
+                }
+            },
             onStartPause = { minutes ->
                 scope.launch { repository.startPause(PauseState.start(clock.now(), minutes * MILLIS_PER_MINUTE)) }
             },
             onResumeNow = { scope.launch { repository.clearPause() } },
+            onTurnBackOnNow = {
+                if (Comeback.turnBackOn(context)) enabled = isServiceEnabled(context) else context.startActivity(accessibilitySettingsIntent())
+            },
             onOpenAccessibility = { context.startActivity(accessibilitySettingsIntent()) },
             onOpenAppInfo = { context.startActivity(appInfoIntent(context)) },
             onOpenDiagnostics = { showDebug = true },
@@ -125,3 +172,7 @@ private fun App(repository: SettingsRepository, statsRepository: StatsRepository
 }
 
 private const val MILLIS_PER_MINUTE: Long = 60_000
+
+/** Below Android 13 there is no permission: notifications are on unless switched off in App info. */
+private fun areNotificationsOn(context: Context): Boolean =
+    context.getSystemService(NotificationManager::class.java).areNotificationsEnabled()

@@ -1,5 +1,6 @@
 package app.scrollhalt.ui
 
+import android.text.format.DateFormat
 import androidx.annotation.DrawableRes
 import androidx.annotation.StringRes
 import androidx.compose.animation.AnimatedVisibility
@@ -50,6 +51,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.semantics.Role
@@ -60,6 +62,7 @@ import androidx.compose.ui.unit.sp
 import app.scrollhalt.R
 import app.scrollhalt.data.AppSettings
 import app.scrollhalt.stats.Dashboard
+import java.util.Date
 
 private val ScreenPadding = 20.dp
 
@@ -68,12 +71,21 @@ fun MainScreen(
     status: ProtectionStatus,
     settings: AppSettings,
     pauseRemainingMillis: Long,
+    /** Label of the app the service is off for, and its comeback time (wall clock; null when due). */
+    offForLabel: String?,
+    backOnAtMillis: Long?,
+    /** WRITE_SECURE_SETTINGS was granted: the service turns back on by itself. */
+    turnsBackOnByItself: Boolean,
+    notificationsAllowed: Boolean,
     board: Dashboard,
     versionName: String,
     onBlockingChange: (Boolean) -> Unit,
     onAllowSingleReelChange: (Boolean) -> Unit,
+    onTurnOffForChange: (packageName: String, listed: Boolean) -> Unit,
+    onAllowNotifications: () -> Unit,
     onStartPause: (minutes: Int) -> Unit,
     onResumeNow: () -> Unit,
+    onTurnBackOnNow: () -> Unit,
     onOpenAccessibility: () -> Unit,
     onOpenAppInfo: () -> Unit,
     onOpenDiagnostics: () -> Unit,
@@ -81,6 +93,7 @@ fun MainScreen(
 ) {
     var showHowItWorks by rememberSaveable { mutableStateOf(false) }
     var showPauseSheet by rememberSaveable { mutableStateOf(false) }
+    var showTurnOffSheet by rememberSaveable { mutableStateOf(false) }
     var confirmReset by rememberSaveable { mutableStateOf(false) }
     val setupNeeded = status == ProtectionStatus.SERVICE_UNAVAILABLE
 
@@ -97,10 +110,13 @@ fun MainScreen(
             HeroCard(
                 status = status,
                 pauseRemainingMillis = pauseRemainingMillis,
+                offForLabel = offForLabel,
+                backOnAtMillis = backOnAtMillis,
                 onPause = { showPauseSheet = true },
                 onResumeNow = onResumeNow,
                 onEnableBlocking = { onBlockingChange(true) },
                 onTurnOn = onOpenAccessibility,
+                onTurnBackOnNow = onTurnBackOnNow,
             )
             AnimatedVisibility(visible = setupNeeded) {
                 Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
@@ -109,7 +125,16 @@ fun MainScreen(
                 }
             }
             DashboardSection(board, paused = status == ProtectionStatus.PAUSED)
-            ControlsCard(settings, enabled = !setupNeeded, onBlockingChange, onAllowSingleReelChange)
+            ControlsCard(
+                settings = settings,
+                enabled = !setupNeeded,
+                turnsBackOnByItself = turnsBackOnByItself,
+                notificationsAllowed = notificationsAllowed,
+                onBlockingChange = onBlockingChange,
+                onAllowSingleReelChange = onAllowSingleReelChange,
+                onTurnOffFor = { showTurnOffSheet = true },
+                onAllowNotifications = onAllowNotifications,
+            )
             Text(
                 text = stringResource(R.string.version_label, versionName),
                 style = MaterialTheme.typography.labelSmall,
@@ -138,6 +163,9 @@ fun MainScreen(
             },
             onDismiss = { showPauseSheet = false },
         )
+    }
+    if (showTurnOffSheet) {
+        AppPickerSheet(selected = settings.turnOffFor, onChange = onTurnOffForChange, onDismiss = { showTurnOffSheet = false })
     }
 }
 
@@ -192,16 +220,19 @@ private fun Header(onHowItWorks: () -> Unit, onDiagnostics: () -> Unit, onResetS
 private fun HeroCard(
     status: ProtectionStatus,
     pauseRemainingMillis: Long,
+    offForLabel: String?,
+    backOnAtMillis: Long?,
     onPause: () -> Unit,
     onResumeNow: () -> Unit,
     onEnableBlocking: () -> Unit,
     onTurnOn: () -> Unit,
+    onTurnBackOnNow: () -> Unit,
 ) {
     val colors = MaterialTheme.colorScheme
     val (container, content) = when (status) {
         ProtectionStatus.ACTIVE -> colors.primaryContainer to colors.onPrimaryContainer
         ProtectionStatus.PAUSED -> colors.secondaryContainer to colors.onSecondaryContainer
-        ProtectionStatus.DISABLED, ProtectionStatus.SERVICE_UNAVAILABLE -> colors.surfaceVariant to colors.onSurface
+        ProtectionStatus.DISABLED, ProtectionStatus.SERVICE_UNAVAILABLE, ProtectionStatus.OFF_FOR_APP -> colors.surfaceVariant to colors.onSurface
     }
     val containerColor by animateColorAsState(container, label = "hero container")
     val contentColor by animateColorAsState(content, label = "hero content")
@@ -209,7 +240,7 @@ private fun HeroCard(
     val icon = when (status) {
         ProtectionStatus.ACTIVE -> R.drawable.ic_shield_check
         ProtectionStatus.PAUSED -> R.drawable.ic_pause
-        ProtectionStatus.DISABLED, ProtectionStatus.SERVICE_UNAVAILABLE -> R.drawable.ic_power
+        ProtectionStatus.DISABLED, ProtectionStatus.SERVICE_UNAVAILABLE, ProtectionStatus.OFF_FOR_APP -> R.drawable.ic_power
     }
 
     Surface(
@@ -284,6 +315,25 @@ private fun HeroCard(
                         Text(stringResource(R.string.status_setup_button))
                     }
                 }
+                ProtectionStatus.OFF_FOR_APP -> {
+                    val context = LocalContext.current
+                    Text(stringResource(R.string.status_off_for, offForLabel.orEmpty()), style = MaterialTheme.typography.headlineSmall, textAlign = TextAlign.Center)
+                    Spacer(Modifier.height(4.dp))
+                    Text(
+                        if (backOnAtMillis != null) {
+                            stringResource(R.string.status_off_back_at, DateFormat.getTimeFormat(context).format(Date(backOnAtMillis)))
+                        } else {
+                            stringResource(R.string.status_off_due)
+                        },
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = contentColor.copy(alpha = 0.8f),
+                        textAlign = TextAlign.Center,
+                    )
+                    Spacer(Modifier.height(16.dp))
+                    Button(onClick = onTurnBackOnNow, shape = MaterialTheme.shapes.medium, modifier = Modifier.heightIn(min = 48.dp)) {
+                        Text(stringResource(R.string.status_off_turn_on))
+                    }
+                }
             }
         }
     }
@@ -326,8 +376,12 @@ private fun ActionRow(@DrawableRes icon: Int, @StringRes title: Int, @StringRes 
 private fun ControlsCard(
     settings: AppSettings,
     enabled: Boolean,
+    turnsBackOnByItself: Boolean,
+    notificationsAllowed: Boolean,
     onBlockingChange: (Boolean) -> Unit,
     onAllowSingleReelChange: (Boolean) -> Unit,
+    onTurnOffFor: () -> Unit,
+    onAllowNotifications: () -> Unit,
 ) {
     Surface(shape = MaterialTheme.shapes.large, color = MaterialTheme.colorScheme.surface, modifier = Modifier.fillMaxWidth()) {
         Column {
@@ -340,7 +394,46 @@ private fun ControlsCard(
                 enabled = enabled && settings.blockingEnabled,
                 onChange = onAllowSingleReelChange,
             )
+            HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant, modifier = Modifier.padding(horizontal = ScreenPadding))
+            TurnOffForRow(settings.turnOffFor.size, enabled, turnsBackOnByItself, onTurnOffFor)
+            if (settings.turnOffFor.isNotEmpty() && !turnsBackOnByItself && !notificationsAllowed) {
+                TextButton(
+                    onClick = onAllowNotifications,
+                    enabled = enabled,
+                    modifier = Modifier.padding(start = ScreenPadding - 12.dp, bottom = 8.dp).heightIn(min = 48.dp),
+                ) {
+                    Text(stringResource(R.string.setting_turn_off_allow_notifications))
+                }
+            }
         }
+    }
+}
+
+/** "Turn off for these apps" with how the service comes back, and how many apps are listed; opens the picker. */
+@Composable
+private fun TurnOffForRow(count: Int, enabled: Boolean, turnsBackOnByItself: Boolean, onClick: () -> Unit) {
+    val alpha = if (enabled) 1f else 0.38f
+    val detail = when {
+        count == 0 -> R.string.setting_turn_off_detail
+        turnsBackOnByItself -> R.string.setting_turn_off_by_itself
+        else -> R.string.setting_turn_off_reminds
+    }
+    Row(
+        verticalAlignment = Alignment.CenterVertically,
+        modifier = Modifier
+            .fillMaxWidth()
+            .heightIn(min = 64.dp)
+            .clickable(enabled = enabled, role = Role.Button, onClick = onClick)
+            .padding(horizontal = ScreenPadding, vertical = 12.dp),
+    ) {
+        Column(modifier = Modifier.weight(1f).padding(end = 16.dp)) {
+            Text(stringResource(R.string.setting_turn_off), style = MaterialTheme.typography.bodyLarge, color = MaterialTheme.colorScheme.onSurface.copy(alpha = alpha))
+            Text(stringResource(detail), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = alpha))
+        }
+        if (count > 0) {
+            Text("$count", style = MaterialTheme.typography.titleMedium, color = MaterialTheme.colorScheme.onSurface.copy(alpha = alpha))
+        }
+        Icon(painterResource(R.drawable.ic_chevron_right), contentDescription = null, tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = alpha))
     }
 }
 
