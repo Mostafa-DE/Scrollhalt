@@ -3,12 +3,16 @@
     <string name="app_name">Scrollhalt</string>
 
     <string name="service_summary">Keeps you out of the Instagram Reels feed.</string>
-    <string name="service_description">Scrollhalt reads the names of on-screen views inside the Instagram app (for example \"reel viewer\" or \"Reels tab\") to notice when Reels open, covers the Reels tab button, and taps Home or Back for you. From other apps it only notices that a window changed, to know you left Instagram. It does not read messages, captions or usernames, and nothing is stored or sent anywhere: the app has no internet permission.</string>
+    <string name="service_description">Scrollhalt reads the names of on-screen views inside the Instagram app (for example \"reel viewer\" or \"Reels tab\") to notice when Reels open, covers the Reels tab button, and taps Home or Back for you. From other apps it only reads which app is in front, to know you left Instagram and to switch itself off for the apps you listed under Turn off for these apps. It does not read messages, captions or usernames, and nothing is stored or sent anywhere: the app has no internet permission.</string>
 
     <string name="banner_blocked">Reels blocked</string>
     <string name="banner_tab_hidden">Reels hidden by Scrollhalt</string>
     <string name="banner_resumes_in">Reels blocking resumes in %1$d s</string>
     <string name="banner_protection_back">Reels blocking is back on</string>
+
+    <string name="reminder_channel">Scrollhalt reminders</string>
+    <string name="reminder_title">Scrollhalt is off</string>
+    <string name="reminder_text">Tap to turn Reels blocking back on.</string>
 
     <string name="menu_more">More options</string>
 

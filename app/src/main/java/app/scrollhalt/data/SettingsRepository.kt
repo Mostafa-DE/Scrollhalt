@@ -8,8 +8,11 @@ import androidx.datastore.preferences.core.booleanPreferencesKey
 import androidx.datastore.preferences.core.edit
 import androidx.datastore.preferences.core.intPreferencesKey
 import androidx.datastore.preferences.core.longPreferencesKey
+import androidx.datastore.preferences.core.stringPreferencesKey
+import androidx.datastore.preferences.core.stringSetPreferencesKey
 import androidx.datastore.preferences.preferencesDataStore
 import app.scrollhalt.protect.Moment
+import app.scrollhalt.protect.OffForApp
 import app.scrollhalt.protect.PauseState
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.map
@@ -20,6 +23,10 @@ data class AppSettings(
     val debugCapture: Boolean = false,
     /** The timed pause, if one was started; it may have expired already (see [PauseState.isActive]). */
     val pause: PauseState? = null,
+    /** Package names of the apps Scrollhalt turns its service off for ("Turn off for these apps"). */
+    val turnOffFor: Set<String> = emptySet(),
+    /** The service is off for one of those apps until it connects again; may be due already. */
+    val offForApp: OffForApp? = null,
 )
 
 private val Context.settingsStore: DataStore<Preferences> by preferencesDataStore(name = "settings")
@@ -33,6 +40,8 @@ class SettingsRepository(context: Context) {
             allowSingleReel = prefs[ALLOW_SINGLE_REEL] ?: true,
             debugCapture = prefs[DEBUG_CAPTURE] ?: false,
             pause = pauseOf(prefs),
+            turnOffFor = prefs[TURN_OFF_FOR] ?: emptySet(),
+            offForApp = offForAppOf(prefs),
         )
     }
 
@@ -69,6 +78,40 @@ class SettingsRepository(context: Context) {
         store.edit { it[DEBUG_CAPTURE] = value }
     }
 
+    /** Adds [packageName] to the apps to turn off for ([listed]) or removes it. */
+    suspend fun setTurnOffFor(packageName: String, listed: Boolean) {
+        store.edit {
+            val current = it[TURN_OFF_FOR] ?: emptySet()
+            it[TURN_OFF_FOR] = if (listed) current + packageName else current - packageName
+        }
+    }
+
+    suspend fun startOffForApp(off: OffForApp) {
+        store.edit { it.putOffForApp(off) }
+    }
+
+    /** A comeback stored on an earlier boot moves onto this boot's clocks, once (see [PauseState.rebased]). */
+    suspend fun rebaseOffForApp(now: Moment) {
+        store.edit { prefs ->
+            val off = offForAppOf(prefs)
+            if (off != null && !off.comeback.isOnBootOf(now)) prefs.putOffForApp(off.copy(comeback = off.comeback.rebased(now)))
+        }
+    }
+
+    /** The service is back. */
+    suspend fun clearOffForApp() {
+        store.edit { it.removeOffForApp() }
+    }
+
+    private fun offForAppOf(prefs: Preferences): OffForApp? {
+        val packageName = prefs[OFF_PACKAGE] ?: return null
+        val offAtWall = prefs[OFF_AT_WALL] ?: return null
+        val backAtWall = prefs[OFF_BACK_AT_WALL] ?: return null
+        val backAtElapsed = prefs[OFF_BACK_AT_ELAPSED] ?: return null
+        val bootCount = prefs[OFF_BOOT_COUNT] ?: return null
+        return OffForApp(packageName, PauseState(backAtWall, backAtElapsed, bootCount, OffForApp.COMEBACK_MILLIS, offAtWall))
+    }
+
     private fun pauseOf(prefs: Preferences): PauseState? {
         val endWall = prefs[PAUSE_END_WALL] ?: return null
         val endElapsed = prefs[PAUSE_END_ELAPSED] ?: return null
@@ -83,6 +126,22 @@ class SettingsRepository(context: Context) {
         this[PAUSE_BOOT_COUNT] = pause.bootCount
         this[PAUSE_DURATION] = pause.durationMillis
         this[PAUSE_START_WALL] = pause.startedWallMillis
+    }
+
+    private fun MutablePreferences.putOffForApp(off: OffForApp) {
+        this[OFF_PACKAGE] = off.packageName
+        this[OFF_AT_WALL] = off.comeback.startedWallMillis
+        this[OFF_BACK_AT_WALL] = off.comeback.endWallMillis
+        this[OFF_BACK_AT_ELAPSED] = off.comeback.endElapsedMillis
+        this[OFF_BOOT_COUNT] = off.comeback.bootCount
+    }
+
+    private fun MutablePreferences.removeOffForApp() {
+        remove(OFF_PACKAGE)
+        remove(OFF_AT_WALL)
+        remove(OFF_BACK_AT_WALL)
+        remove(OFF_BACK_AT_ELAPSED)
+        remove(OFF_BOOT_COUNT)
     }
 
     private fun MutablePreferences.removePause() {
@@ -102,5 +161,11 @@ class SettingsRepository(context: Context) {
         val PAUSE_BOOT_COUNT: Preferences.Key<Int> = intPreferencesKey("pauseBootCount")
         val PAUSE_DURATION: Preferences.Key<Long> = longPreferencesKey("pauseDuration")
         val PAUSE_START_WALL: Preferences.Key<Long> = longPreferencesKey("pauseStartWall")
+        val TURN_OFF_FOR: Preferences.Key<Set<String>> = stringSetPreferencesKey("turnOffFor")
+        val OFF_PACKAGE: Preferences.Key<String> = stringPreferencesKey("offForAppPackage")
+        val OFF_AT_WALL: Preferences.Key<Long> = longPreferencesKey("offForAppOffAtWall")
+        val OFF_BACK_AT_WALL: Preferences.Key<Long> = longPreferencesKey("offForAppBackAtWall")
+        val OFF_BACK_AT_ELAPSED: Preferences.Key<Long> = longPreferencesKey("offForAppBackAtElapsed")
+        val OFF_BOOT_COUNT: Preferences.Key<Int> = intPreferencesKey("offForAppBootCount")
     }
 }

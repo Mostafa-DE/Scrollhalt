@@ -35,6 +35,7 @@ import app.scrollhalt.detect.UiNode
 import app.scrollhalt.detect.onScreenIds
 import app.scrollhalt.protect.Clock
 import app.scrollhalt.protect.Moment
+import app.scrollhalt.protect.OffForApp
 import app.scrollhalt.protect.PauseCountdown
 import app.scrollhalt.protect.PauseState
 import app.scrollhalt.protect.ProtectionMode
@@ -58,6 +59,7 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancel
 import kotlinx.coroutines.launch
+import java.io.IOException
 
 /** Logcat tag for adb diagnosis (`adb logcat -s Scrollhalt`). Ids and indexes only, never text. */
 internal const val LOG_TAG: String = "Scrollhalt"
@@ -66,8 +68,9 @@ internal const val LOG_TAG: String = "Scrollhalt"
  * Watches Instagram's view tree, covers the Reels tab button, and leaves reels when they
  * appear. All work runs on the main thread in response to events: no polling, nothing runs
  * while idle (timers exist only while a retry or a pause is pending). Events from other apps
- * are used only to notice that Instagram is no longer in front (their package name; nothing
- * else is read). Usage statistics are fed from the same events (see [StatsKeeper]).
+ * are used only to notice that Instagram is no longer in front, or that an app on the "Turn off
+ * for these apps" list is (their package name; nothing else is read). Usage statistics are fed
+ * from the same events (see [StatsKeeper]).
  */
 class ScrollhaltService : AccessibilityService() {
     private val handler = Handler(Looper.getMainLooper())
@@ -116,6 +119,8 @@ class ScrollhaltService : AccessibilityService() {
     private var inInstagram = false
     private var lastLogged: Pair<String, String>? = null
     private var lastScreen: String? = null
+    /** Switching off for an app on the list is under way (see [turnOffIfListed]). */
+    private var turningOff = false
 
     override fun onServiceConnected() {
         super.onServiceConnected()
@@ -130,6 +135,9 @@ class ScrollhaltService : AccessibilityService() {
         screenOn = getSystemService(PowerManager::class.java)?.isInteractive != false
         registerScreenReceiver()
         stats.start(this, serviceScope)
+        // Connected again: a switch-off for an app is over, with its alarm and reminder.
+        serviceScope.launch { settingsRepository.clearOffForApp() }
+        Comeback.cancel(this)
         serviceScope.launch {
             settingsRepository.settings.collect {
                 settings = it
@@ -138,6 +146,8 @@ class ScrollhaltService : AccessibilityService() {
                     reconcileProtection()
                     schedulePauseTimers()
                     if (!blocking()) cover?.hide()
+                    // Still (or again) in an app on the list, for example right after the comeback.
+                    if (it.turnOffFor.isNotEmpty()) turnOffIfListed(activePackage())
                 }
             }
         }
@@ -240,11 +250,42 @@ class ScrollhaltService : AccessibilityService() {
 
     private fun onOtherWindowChanged() {
         val counting = stats.counting
-        if (!inInstagram && !counting) return
+        if (!inInstagram && !counting && settings.turnOffFor.isEmpty()) return
         val front = activePackage()
         if (counting) trackFront(front)
-        if (!inInstagram) return
-        if (front != InstagramRules.PACKAGE) leftInstagram() else scheduleScan()
+        if (inInstagram) {
+            if (front != InstagramRules.PACKAGE) leftInstagram() else scheduleScan()
+        }
+        turnOffIfListed(front)
+    }
+
+    /**
+     * An app on the "Turn off for these apps" list is in front (some banking apps refuse to run
+     * while an accessibility app is on): records the switch-off with its comeback, sets the
+     * comeback alarm, then switches the service off. The app's package name is all that is read;
+     * its windows are never acted on. Stopping closes the statistics as on any stop ([shutdown]).
+     * If the record cannot be stored the service stays on, since nothing would bring it back.
+     */
+    private fun turnOffIfListed(front: String?) {
+        if (turningOff || front == null || front !in settings.turnOffFor) return
+        turningOff = true
+        val off = OffForApp.start(front, clock.now())
+        cover?.hide()
+        banner?.hide()
+        countdownShowing = false
+        Log.i(LOG_TAG, "turning off for $front, back in ${OffForApp.COMEBACK_MILLIS / 1_000} s")
+        DebugLog.add(DebugEntry(System.currentTimeMillis(), "turn off", front, "-", "app on the turn-off list in front"))
+        scope?.launch {
+            try {
+                settingsRepository.startOffForApp(off)
+            } catch (e: IOException) {
+                Log.e(LOG_TAG, "turn off not stored, staying on", e)
+                turningOff = false
+                return@launch
+            }
+            Comeback.schedule(this@ScrollhaltService, off.backAtElapsed(clock.now()))
+            disableSelf()
+        }
     }
 
     /**

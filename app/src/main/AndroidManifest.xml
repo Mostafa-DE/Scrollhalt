@@ -2,7 +2,18 @@
 <manifest xmlns:android="http://schemas.android.com/apk/res/android"
     xmlns:tools="http://schemas.android.com/tools">
 
-    <!-- Scrollhalt needs no permissions. androidx.core adds this one for dynamic receivers we never register. -->
+    <!-- Only for "Turn off for these apps" (see README): turning the accessibility service back on by
+         itself, which works only after `adb shell pm grant app.scrollhalt
+         android.permission.WRITE_SECURE_SETTINGS`; the reminder when it cannot (asked for only from
+         the Allow notifications button); setting the comeback alarm again after a reboot.
+         No internet permission. -->
+    <uses-permission
+        android:name="android.permission.WRITE_SECURE_SETTINGS"
+        tools:ignore="ProtectedPermissions" />
+    <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
+    <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED" />
+
+    <!-- androidx.core adds this one for dynamic receivers we never register. -->
     <uses-permission
         android:name="${applicationId}.DYNAMIC_RECEIVER_NOT_EXPORTED_PERMISSION"
         tools:node="remove" />
@@ -11,9 +22,14 @@
         tools:node="remove" />
 
     <!-- Package visibility (not a permission): lets the service tell Instagram's activities
-         apart from its dialogs in window-state events. -->
+         apart from its dialogs in window-state events, and lists the apps with a launcher icon
+         for "Turn off for these apps" (no QUERY_ALL_PACKAGES). -->
     <queries>
         <package android:name="com.instagram.android" />
+        <intent>
+            <action android:name="android.intent.action.MAIN" />
+            <category android:name="android.intent.category.LAUNCHER" />
+        </intent>
     </queries>
 
     <application
@@ -47,5 +63,15 @@
                 android:name="android.accessibilityservice"
                 android:resource="@xml/accessibility_service_config" />
         </service>
+
+        <!-- The comeback after "Turn off for these apps": Scrollhalt's own alarm, and BOOT_COMPLETED
+             (sent by the system, which reaches receivers that are not exported). -->
+        <receiver
+            android:name=".service.ComebackReceiver"
+            android:exported="false">
+            <intent-filter>
+                <action android:name="android.intent.action.BOOT_COMPLETED" />
+            </intent-filter>
+        </receiver>
     </application>
 </manifest>
