@@ -93,6 +93,35 @@ class OffForAppTest {
     }
 
     @Test
+    fun `before the comeback the check waits until the comeback time`() {
+        val off = OffForApp.start(bank, start)
+        assertEquals(ComebackStep.Wait(start.elapsedMillis + fiveMinutes), off.nextStep(start, serviceEnabled = false))
+        assertEquals(ComebackStep.Wait(start.elapsedMillis + fiveMinutes), off.nextStep(later(4 * 60_000), serviceEnabled = false))
+    }
+
+    @Test
+    fun `a check after a reboot waits on the new boot's clock`() {
+        val off = OffForApp.start(bank, start)
+        val booted = Moment(elapsedMillis = 20_000, wallMillis = start.wallMillis + 2 * 60_000, bootCount = 8, zone = zone)
+        assertEquals(ComebackStep.Wait(20_000L + 3 * 60_000), off.nextStep(booted, serviceEnabled = false))
+    }
+
+    @Test
+    fun `when due the check comes back and tries again five minutes later if nothing worked`() {
+        val off = OffForApp.start(bank, start)
+        val due = later(fiveMinutes + 30_000)
+        assertEquals(ComebackStep.Due(retryAtElapsedMillis = due.elapsedMillis + fiveMinutes), off.nextStep(due, serviceEnabled = false))
+    }
+
+    @Test
+    fun `a switch-off is forgotten once the service is enabled again, due or not`() {
+        // The service was turned back on (or disableSelf did not take effect): no reminder.
+        val off = OffForApp.start(bank, start)
+        assertEquals(ComebackStep.Forget, off.nextStep(start, serviceEnabled = true))
+        assertEquals(ComebackStep.Forget, off.nextStep(later(fiveMinutes + 1), serviceEnabled = true))
+    }
+
+    @Test
     fun `the service list gets Scrollhalt when it is empty`() {
         assertEquals(OURS, EnabledServices.withService(null, OURS))
         assertEquals(OURS, EnabledServices.withService("", OURS))

@@ -99,7 +99,23 @@ private fun App(repository: SettingsRepository, statsRepository: StatsRepository
         turnsBackOnByItself = Comeback.canTurnBackOn(context)
         notificationsAllowed = areNotificationsOn(context)
         now = clock.now()
+        // A force-stop drops the comeback alarm: this sets it again, or comes back when due.
+        // Without a switch-off it only reads the settings.
+        scope.launch { Comeback.check(context) }
         onPauseOrDispose { }
+    }
+
+    // The service coming back (or stopping) while the screen is open changes the setting too;
+    // otherwise a comeback seen on screen would show Setup needed until the next resume.
+    LaunchedEffect(connected) { enabled = isServiceEnabled(context) }
+
+    // "Back on at HH:MM" turns into the due text at that time while the screen is visible.
+    LaunchedEffect(offForApp, lifecycleOwner) {
+        if (offForApp == null) return@LaunchedEffect
+        lifecycleOwner.repeatOnLifecycle(Lifecycle.State.STARTED) {
+            delay(offForApp.comeback.remaining(clock.now()))
+            now = clock.now()
+        }
     }
 
     // Countdown while a pause runs and the screen is visible; it also clears a pause that

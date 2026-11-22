@@ -15,11 +15,30 @@ data class OffForApp(val packageName: String, val comeback: PauseState) {
     /** When to come back, by the wall clock ("Back on at HH:MM"); now if it is due. */
     fun backAtWall(now: Moment): Long = now.wallMillis + comeback.remaining(now)
 
+    /** What a comeback check does at [now]; [serviceEnabled]: Scrollhalt is in the enabled services again. */
+    fun nextStep(now: Moment, serviceEnabled: Boolean): ComebackStep = when {
+        serviceEnabled -> ComebackStep.Forget
+        !isDue(now) -> ComebackStep.Wait(backAtElapsed(now))
+        else -> ComebackStep.Due(retryAtElapsedMillis = now.elapsedMillis + COMEBACK_MILLIS)
+    }
+
     companion object {
         const val COMEBACK_MILLIS: Long = 5 * 60_000L
 
         fun start(packageName: String, now: Moment): OffForApp = OffForApp(packageName, PauseState.start(now, COMEBACK_MILLIS))
     }
+}
+
+/** The outcome of a comeback check (on the alarm, after a reboot, when the app opens). */
+sealed interface ComebackStep {
+    /** The service is on again (turned back on, or the switch-off never took effect): drop the record. */
+    data object Forget : ComebackStep
+
+    /** Not due yet: check again at [atElapsedMillis] (elapsedRealtime of this boot). */
+    data class Wait(val atElapsedMillis: Long) : ComebackStep
+
+    /** Turn the service back on, else remind; if neither works, check again at [retryAtElapsedMillis]. */
+    data class Due(val retryAtElapsedMillis: Long) : ComebackStep
 }
 
 /** The `ENABLED_ACCESSIBILITY_SERVICES` secure setting: flattened component names separated by ':'. */

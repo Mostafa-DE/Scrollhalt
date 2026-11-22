@@ -135,10 +135,17 @@ class ScrollhaltService : AccessibilityService() {
         screenOn = getSystemService(PowerManager::class.java)?.isInteractive != false
         registerScreenReceiver()
         stats.start(this, serviceScope)
-        // Connected again: a switch-off for an app is over, with its alarm and reminder.
-        serviceScope.launch { settingsRepository.clearOffForApp() }
-        Comeback.cancel(this)
         serviceScope.launch {
+            // Connected again: a switch-off for an app is over, with its alarm and reminder. Done
+            // before the settings load, so a new switch-off (below) cannot be cancelled by it.
+            try {
+                settingsRepository.clearOffForApp()
+                Comeback.cancel(this@ScrollhaltService)
+            } catch (e: IOException) {
+                Log.e(LOG_TAG, "switch-off record not cleared", e)
+            } catch (e: RuntimeException) {
+                Log.e(LOG_TAG, "comeback not cancelled", e)
+            }
             settingsRepository.settings.collect {
                 settings = it
                 settingsLoaded = true
@@ -147,6 +154,7 @@ class ScrollhaltService : AccessibilityService() {
                     schedulePauseTimers()
                     if (!blocking()) cover?.hide()
                     // Still (or again) in an app on the list, for example right after the comeback.
+                    // Also covers window events dropped before the settings were loaded.
                     if (it.turnOffFor.isNotEmpty()) turnOffIfListed(activePackage())
                 }
             }
@@ -264,7 +272,9 @@ class ScrollhaltService : AccessibilityService() {
      * while an accessibility app is on): records the switch-off with its comeback, sets the
      * comeback alarm, then switches the service off. The app's package name is all that is read;
      * its windows are never acted on. Stopping closes the statistics as on any stop ([shutdown]).
-     * If the record cannot be stored the service stays on, since nothing would bring it back.
+     * If the record cannot be stored the service stays on, since nothing would bring it back, and
+     * if the app left while it was stored the record is dropped again. [turningOff] is reset
+     * however it ends, since disableSelf() can fail without a word; a later event then retries.
      */
     private fun turnOffIfListed(front: String?) {
         if (turningOff || front == null || front !in settings.turnOffFor) return
@@ -278,13 +288,21 @@ class ScrollhaltService : AccessibilityService() {
         scope?.launch {
             try {
                 settingsRepository.startOffForApp(off)
+                val still = activePackage()
+                if (still == null || still !in settings.turnOffFor) {
+                    Log.i(LOG_TAG, "$front left before turning off, staying on")
+                    settingsRepository.clearOffForApp()
+                    return@launch
+                }
+                Comeback.schedule(this@ScrollhaltService, off.backAtElapsed(clock.now()))
+                disableSelf()
             } catch (e: IOException) {
-                Log.e(LOG_TAG, "turn off not stored, staying on", e)
+                Log.e(LOG_TAG, "turning off failed, staying on", e)
+            } catch (e: RuntimeException) {
+                Log.e(LOG_TAG, "turning off failed", e)
+            } finally {
                 turningOff = false
-                return@launch
             }
-            Comeback.schedule(this@ScrollhaltService, off.backAtElapsed(clock.now()))
-            disableSelf()
         }
     }
 
