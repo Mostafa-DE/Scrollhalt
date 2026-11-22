@@ -2,6 +2,7 @@ package app.scrollhalt.ui
 
 import android.content.Context
 import android.content.Intent
+import android.content.pm.PackageManager
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -54,7 +55,8 @@ private class LaunchableApp(val packageName: String, val label: String, val icon
 /**
  * "Turn off for these apps": the apps with a launcher icon (visible through the MAIN/LAUNCHER
  * query in the manifest, no QUERY_ALL_PACKAGES), with a search field. [onChange] adds or removes
- * one. Scrollhalt and Instagram are not offered.
+ * one. Not offered: Scrollhalt and Instagram, and the Settings app and the home screen, where
+ * the service is turned back on by hand (listing them would switch it straight off again).
  */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -137,7 +139,11 @@ private fun AppRow(app: LaunchableApp, checked: Boolean, onChange: (Boolean) -> 
 /** One entry per app with a launcher activity, sorted by name; icons scaled to [iconPx]. */
 private fun launchableApps(context: Context, iconPx: Int): List<LaunchableApp> {
     val packageManager = context.packageManager
-    val excluded = setOf(context.packageName, InstagramRules.PACKAGE)
+    val home = Intent(Intent.ACTION_MAIN).addCategory(Intent.CATEGORY_HOME)
+    val excluded = setOf(context.packageName, InstagramRules.PACKAGE) +
+        listOf(accessibilitySettingsIntent(), home).mapNotNull {
+            packageManager.resolveActivity(it, PackageManager.MATCH_DEFAULT_ONLY)?.activityInfo?.packageName
+        }
     val launcher = Intent(Intent.ACTION_MAIN).addCategory(Intent.CATEGORY_LAUNCHER)
     return packageManager.queryIntentActivities(launcher, 0)
         .map { it.activityInfo.applicationInfo }

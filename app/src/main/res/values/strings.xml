@@ -45,6 +45,7 @@
     <string name="setting_turn_off_detail">For apps that refuse to run while Scrollhalt is on, like banking apps</string>
     <string name="setting_turn_off_by_itself">Turns back on by itself</string>
     <string name="setting_turn_off_reminds">Reminds you to turn it back on</string>
+    <string name="setting_turn_off_needs_notifications">Needs notifications to remind you to turn it back on</string>
     <string name="setting_turn_off_allow_notifications">Allow notifications</string>
     <plurals name="turn_off_sheet_detail">
         <item quantity="one">While one of these apps is open, Scrollhalt switches its accessibility service off so the app can run, and comes back %1$d minute later.</item>

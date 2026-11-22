@@ -395,7 +395,7 @@ private fun ControlsCard(
                 onChange = onAllowSingleReelChange,
             )
             HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant, modifier = Modifier.padding(horizontal = ScreenPadding))
-            TurnOffForRow(settings.turnOffFor.size, enabled, turnsBackOnByItself, onTurnOffFor)
+            TurnOffForRow(settings.turnOffFor.size, enabled, turnsBackOnByItself, notificationsAllowed, onTurnOffFor)
             if (settings.turnOffFor.isNotEmpty() && !turnsBackOnByItself && !notificationsAllowed) {
                 TextButton(
                     onClick = onAllowNotifications,
@@ -411,12 +411,13 @@ private fun ControlsCard(
 
 /** "Turn off for these apps" with how the service comes back, and how many apps are listed; opens the picker. */
 @Composable
-private fun TurnOffForRow(count: Int, enabled: Boolean, turnsBackOnByItself: Boolean, onClick: () -> Unit) {
+private fun TurnOffForRow(count: Int, enabled: Boolean, turnsBackOnByItself: Boolean, notificationsAllowed: Boolean, onClick: () -> Unit) {
     val alpha = if (enabled) 1f else 0.38f
     val detail = when {
         count == 0 -> R.string.setting_turn_off_detail
         turnsBackOnByItself -> R.string.setting_turn_off_by_itself
-        else -> R.string.setting_turn_off_reminds
+        notificationsAllowed -> R.string.setting_turn_off_reminds
+        else -> R.string.setting_turn_off_needs_notifications
     }
     Row(
         verticalAlignment = Alignment.CenterVertically,

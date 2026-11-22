@@ -217,7 +217,10 @@ that check. Instead it really switches its accessibility service off while such 
 open, and comes back afterwards.
 
 1. In Scrollhalt, **Turn off for these apps** opens a list of the apps with a launcher icon
-   (with a search field). Tick the banking apps. The list is empty by default.
+   (with a search field). Tick the banking apps. The list is empty by default. Scrollhalt,
+   Instagram, the Settings app and the home screen are not offered: Settings and the home
+   screen are where you turn Scrollhalt back on by hand, so listing them would switch it
+   straight off again.
 2. When one of them comes to the front (the service reads only the package name of the
    app in front, never its screen), Scrollhalt stores when it switched off and when it comes
    back, sets an alarm 5 minutes later, removes the Reels cover and banner, closes the usage
@@ -225,10 +228,12 @@ open, and comes back afterwards.
    (`disableSelf()`). Logcat (`adb logcat -s Scrollhalt`) says which app it switched off for.
 3. After 5 minutes:
    - With the one-time adb grant below, it **turns itself back on**: it adds itself to
-     Android's list of enabled accessibility services, keeping the others.
-   - Without it, it posts a notification **"Scrollhalt is off"**; tapping it opens
-     Accessibility settings, where you switch Scrollhalt on. Without notification permission
-     nothing is posted, and the Scrollhalt screen shows the state.
+     Android's list of enabled accessibility services, keeping the others, and reads the
+     list back to confirm.
+   - Without it (or if that did not work), it posts a notification **"Scrollhalt is off"**;
+     tapping it opens Accessibility settings, where you switch Scrollhalt on. If it cannot
+     post it (notifications or the reminder channel off), it tries again every 5 minutes,
+     and the Scrollhalt screen shows the state.
 4. When the service is back and the banking app is still in front, it switches off again
    for another 5 minutes. It never acts on that app's screen.
 
@@ -251,7 +256,10 @@ Without it everything works, but you turn Scrollhalt back on yourself after the 
 
 The comeback alarm is inexact (no exact-alarm permission), so in deep sleep Android may
 deliver it a few minutes late. After a reboot it is set again; the wall clock then decides,
-capped at 5 minutes, like a pause.
+capped at 5 minutes, like a pause. Opening Scrollhalt checks too: if the alarm was lost (a
+force-stop drops it) it is set again, and if the comeback is already due it happens then. A
+check that fails is tried again a minute later. If Scrollhalt finds itself enabled again
+while a switch-off is recorded, it drops the record without a reminder.
 
 Permissions, all only for this feature:
 
@@ -353,9 +361,10 @@ memory only and are gone when the app process ends.
   Blocked category.
 - Like the blocking itself, all statistics depend on Instagram's view ids.
 - Turn off for these apps: if Scrollhalt is force-stopped while it is off, Android drops
-  its comeback alarm; open Scrollhalt and tap Turn back on now. Turning itself back on
-  writes Android's accessibility settings; whether every Android version binds the service
-  again from that write is only known from testing on the phone.
+  its comeback alarm, and it comes back only when you open Scrollhalt again. Turning itself
+  back on rewrites Android's list of enabled accessibility services: it was confirmed to
+  bind the service again on Android 17, other versions are untested; and if another app
+  changes that list at the same moment, one of the two changes can be lost.
 
 ## Manual test checklist
 
